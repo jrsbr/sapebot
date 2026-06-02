@@ -29,6 +29,8 @@ const schema = z.object({
   DEFAULT_TIMEZONE: z.string().default('America/Sao_Paulo'),
   REMINDER_HOUR: z.coerce.number().int().min(0).max(23).default(9),
   REMINDER_MINUTE: z.coerce.number().int().min(0).max(59).default(0),
+  REMINDER_HOUR_2: z.coerce.number().int().min(0).max(23).default(21),
+  REMINDER_MINUTE_2: z.coerce.number().int().min(0).max(59).default(0),
 
   // ===== Templates aprovados na Meta =====
   WHATSAPP_TEMPLATE_TASKS: z.string().default('lembrete_tarefas'),
