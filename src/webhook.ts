@@ -192,7 +192,7 @@ async function handleOneMessage(
     inboundRow.parsed_intent = 'unknown_number';
     await safeAppend(inboundRow);
     const reply =
-      'Olá! Este número não está cadastrado para receber lembretes de tarefas. Fale com o responsável da república para ser incluído.';
+      'Olá! Este número não está cadastrado para receber lembretes de tarefas. Fale com o Pituxo para ser incluído.';
     const r = await sendText(phone, reply);
     await safeAppend(outboundFor(phone, '', reply, 'unknown_number', '', r));
     return;
@@ -295,7 +295,7 @@ async function handleOneMessage(
     }
 
     default:
-      reply = 'Não entendi 🤔. Envie "ajuda" para ver os comandos disponíveis.';
+      reply = 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
   }
 
   if (changed.length) {
