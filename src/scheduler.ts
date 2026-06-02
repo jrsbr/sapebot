@@ -52,7 +52,7 @@ function buildOutbound(
   };
 }
 
-export async function runDailyReminders(): Promise<void> {
+export async function runDailyReminders(slot = 'manha'): Promise<void> {
   logger.info('Iniciando rotina diária de lembretes');
 
   let people: Person[];
@@ -105,7 +105,7 @@ export async function runDailyReminders(): Promise<void> {
     // 4) Sem tarefas: só envia se configurado.
     if (pending.length === 0) {
       if (!sendNoTask) continue;
-      const key = 'no-tasks';
+      const key = `${slot}:no-tasks`;
       if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
         skipped++;
         continue;
@@ -121,7 +121,7 @@ export async function runDailyReminders(): Promise<void> {
     }
 
     // 5) Idempotência: mesma lista no mesmo dia não reenvia.
-    const key = reminderTaskKey(pending);
+    const key = `${slot}:${reminderTaskKey(pending)}`;
     if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
       logger.info(`Lembrete já enviado hoje para ${person.person_id}, pulando.`);
       skipped++;
@@ -175,25 +175,32 @@ export async function runDailyReminders(): Promise<void> {
 }
 
 export function startScheduler(): void {
-  const expr = `${env.REMINDER_MINUTE} ${env.REMINDER_HOUR} * * *`;
-  if (!cron.validate(expr)) {
-    logger.error(`Expressão cron inválida: "${expr}"`);
-    return;
-  }
+  const schedule = (hour: number, minute: number, slot: string) => {
+    const expr = `${minute} ${hour} * * *`;
+    if (!cron.validate(expr)) {
+      logger.error(`Expressão cron inválida: "${expr}"`);
+      return;
+    }
+    cron.schedule(
+      expr,
+      () => {
+        runDailyReminders(slot).catch((err) =>
+          logger.error('Erro não tratado na rotina diária', { error: (err as Error).message }),
+        );
+      },
+      { timezone: env.DEFAULT_TIMEZONE },
+    );
+    const hh = String(hour).padStart(2, '0');
+    const mm = String(minute).padStart(2, '0');
+    logger.info(`Agendador ativo (${slot}): todos os dias às ${hh}:${mm} (${env.DEFAULT_TIMEZONE})`);
+  };
+
+  schedule(env.REMINDER_HOUR, env.REMINDER_MINUTE, 'manha');
+  schedule(env.REMINDER_HOUR_2, env.REMINDER_MINUTE_2, 'noite');
+
+  // Limpeza diária da aba Mensagens (mantém só as últimas 48h).
   cron.schedule(
-    expr,
-    () => {
-      runDailyReminders().catch((err) =>
-        logger.error('Erro não tratado na rotina diária', { error: (err as Error).message }),
-      );
-    },
-    { timezone: env.DEFAULT_TIMEZONE },
-  );
-  const hh = String(env.REMINDER_HOUR).padStart(2, '0');
-  const mm = String(env.REMINDER_MINUTE).padStart(2, '0');
-  logger.info(`Agendador ativo: todos os dias às ${hh}:${mm} (${env.DEFAULT_TIMEZONE})`);
-  cron.schedule(
-    '30 3 * * *', // todo dia às 03:30
+    '30 3 * * *',
     () => {
       pruneOldMessages(48)
         .then((n) => logger.info(`Limpeza de Mensagens: ${n} linhas removidas.`))
