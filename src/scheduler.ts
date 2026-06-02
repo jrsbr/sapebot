@@ -4,7 +4,7 @@ import { env } from './config';
 import { logger } from './logger';
 import { nowIso, localDate } from './time';
 import {
-  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages,
+  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages
 } from './sheets';
 import {
   Person, Task, MessageRow,
@@ -192,6 +192,17 @@ export function startScheduler(): void {
   const hh = String(env.REMINDER_HOUR).padStart(2, '0');
   const mm = String(env.REMINDER_MINUTE).padStart(2, '0');
   logger.info(`Agendador ativo: todos os dias às ${hh}:${mm} (${env.DEFAULT_TIMEZONE})`);
+  cron.schedule(
+    '30 3 * * *', // todo dia às 03:30
+    () => {
+      pruneOldMessages(48)
+        .then((n) => logger.info(`Limpeza de Mensagens: ${n} linhas removidas.`))
+        .catch((err) =>
+          logger.error('Falha na limpeza de Mensagens', { error: (err as Error).message }),
+        );
+    },
+    { timezone: env.DEFAULT_TIMEZONE },
+  );
 }
 
 // Permite rodar manualmente: `npm run send:now`

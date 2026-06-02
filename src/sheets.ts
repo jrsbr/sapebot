@@ -314,3 +314,23 @@ export async function appendTask(task: Task): Promise<void> {
     requestBody: { values: [header.map((h) => taskToValues(task)[h] ?? '')] },
   });
 }
+
+export async function pruneOldMessages(hours = 48): Promise<number> {
+  const matrix = await dumpTab(TAB.mensagens);
+  if (matrix.length <= 1) return 0; // só cabeçalho (ou vazia)
+
+  const header = matrix[0];
+  const tsIdx = header.indexOf('timestamp');
+  if (tsIdx === -1) return 0;
+
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  const kept = matrix.slice(1).filter((row) => {
+    const t = Date.parse(row[tsIdx] ?? '');
+    if (Number.isNaN(t)) return true; // sem timestamp válido: não apaga, por segurança
+    return t >= cutoff;
+  });
+
+  const removed = matrix.length - 1 - kept.length;
+  if (removed > 0) await overwriteTab(TAB.mensagens, [header, ...kept]);
+  return removed;
+}
