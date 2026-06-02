@@ -5,7 +5,8 @@ export type Intent =
   | { type: 'skip'; indices?: number[]; query?: string }
   | { type: 'status' }
   | { type: 'help' }
-  | { type: 'unknown'; raw: string };
+  | { type: 'unknown'; raw: string }
+  | { type: 'admin'; raw: string };
 
 // Normaliza texto: minúsculas, sem acentos, espaços colapsados.
 export function normalizeText(s: string): string {
@@ -35,6 +36,7 @@ export function parseMessage(text: string): Intent {
   const first = tokens[0];
   const rest = norm.slice(first.length).trim();
 
+  if (first === 'admin') return { type: 'admin', raw }; 
   if (HELP_WORDS.includes(norm) || HELP_WORDS.includes(first)) return { type: 'help' };
   if (STATUS_WORDS.includes(first)) return { type: 'status' };
   if (DONE_WORDS.includes(first)) return buildActionIntent('done', rest);
