@@ -1,344 +1,126 @@
-# República — Lembretes de Tarefas via WhatsApp
+# Sapebot — Lembretes de Tarefas automatizado via WhatsApp
 
-Disparador diário de lembretes de tarefas domésticas via **WhatsApp Cloud API (oficial da Meta)**, usando **Google Sheets como fonte da verdade**. Pensado para uma república com ~15 pessoas.
+Disparador diário de lembretes de tarefas domésticas via **WhatsApp Cloud API**, usando **Google Sheets como fonte da verdade**. Robustez projetada para **<50** pessoas.
 
-Todo dia, no horário configurado, o sistema lê a planilha e manda para cada pessoa as tarefas pendentes do dia. As pessoas respondem por WhatsApp (`feito`, `feito 2`, `pular 1`, `status`, `ajuda`…), o sistema interpreta e atualiza a planilha.
-
-> Sem automações não oficiais (nada de `whatsapp-web.js`, Selenium ou scraping). Apenas API oficial.
+Todo dia, no horário configurado (9h e 21h no horário de Brasília), o sistema lê a planilha e envia a cada pessoa as tarefas pendentes do dia. As pessoas respondem por WhatsApp (`feito`, `feito 2`, `pular 1`, `status`, `ajuda`), o sistema interpreta e atualiza a planilha. Um administrador pode criar tarefas pelo próprio WhatsApp.
 
 ## Sumário
 
-- [Arquitetura e decisões](#arquitetura-e-decisoes)
-- [Estrutura do projeto](#estrutura-do-projeto)
-- [Pré-requisitos](#pre-requisitos)
-- [Estrutura da planilha](#estrutura-da-planilha)
-- [Criar a planilha inicial](#criar-a-planilha-inicial)
-- [Configurar o Google Service Account](#configurar-o-google-service-account)
-- [Configurar a WhatsApp Cloud API](#configurar-a-whatsapp-cloud-api)
-- [Configurar os templates na Meta](#configurar-os-templates-na-meta)
-- [Configurar o .env](#configurar-o-env)
-- [Rodar localmente](#rodar-localmente)
-- [Testes](#testes)
-- [Disparo manual e CSV](#disparo-manual-e-csv)
-- [Deploy](#deploy)
-- [Exemplos de mensagens](#exemplos-de-mensagens)
-- [Segurança e opt-in](#seguranca-e-opt-in)
+- [Como funciona](#como-funciona)
+- [Arquitetura](#arquitetura)
+- [Modelo de dados](#modelo-de-dados)
+- [Regras de negócio](#regras-de-negocio)
+- [Comandos do usuário](#comandos-do-usuario)
+- [Comandos de administrador](#comandos-de-administrador)
+- [Rotinas agendadas](#rotinas-agendadas)
+- [Segurança e privacidade](#seguranca-e-privacidade)
 - [Limitações conhecidas](#limitacoes-conhecidas)
 
-## Arquitetura e decisões
+## Como funciona
 
-Camadas separadas, cada uma com uma responsabilidade:
+O sistema tem dois fluxos independentes que rodam no mesmo processo:
+
+**Saída (disparo diário).** Uma rotina agendada lê a planilha, calcula as tarefas pendentes de cada pessoa para o dia e envia um lembrete individual. A mensagem é texto livre quando há uma conversa aberta (a pessoa interagiu nas últimas 24h) ou um template aprovado pela Meta quando o sistema precisa iniciar a conversa.
+
+**Entrada (webhook).** Quando alguém responde, a Meta entrega a mensagem ao webhook. O sistema identifica a pessoa pelo telefone, interpreta o comando, atualiza a planilha e responde — sempre em texto livre, pois a resposta acontece dentro da janela de conversa que a própria mensagem recebida abriu.
+
+A planilha é a única fonte de verdade: não há banco de dados nem estado de sessão em memória. A cada operação o sistema relê o estado relevante, o que torna o comportamento previsível e fácil de inspecionar.
+
+## Arquitetura
+
+Camadas separadas, cada uma com uma responsabilidade única:
 
 | Módulo | Papel |
 |---|---|
-| `config` | Lê e valida o `.env` com `zod`. |
-| `logger` | Logging simples; mascara segredos. |
-| `sheets` | Acesso ao Google Sheets (leitura completa de abas, escrita em lote). |
-| `tasks` | Regras de negócio puras + formatação de mensagens. |
-| `parser` | Interpretação das respostas (função pura). |
-| `whatsapp` | Envio pela Cloud API + fila serial com rate limit. |
-| `scheduler` | Rotina diária (`node-cron`). |
-| `webhook` | Rotas da Meta (GET verificação, POST mensagens). |
-| `csv` | Backup/edição offline (export/import). |
-
-Decisões importantes:
-
-1. **Numeração estável sem estado de sessão.** A lista é sempre recomputada e ordenada por `task_id`, então `feito 1` casa com o `1` do lembrete sem precisar guardar nada.
-2. **Virada de tarefas recorrentes.** No início da rotina, tarefas `daily`/`weekly` cuja instância (`data`) ficou no passado voltam para `pending` hoje. `once` nunca reinicia. O histórico de interações fica na aba `Mensagens`.
-3. **Filtro de pendentes.** Os três filtros do enunciado (`status=pending`, `cobrar=TRUE`, não pausada por `skip_until`) mais uma guarda `data <= hoje` (para que tarefas `once` no futuro não sejam cobradas antes da hora).
-4. **Janela de 24h.** Dentro da janela (a pessoa mandou mensagem nas últimas 24h), o lembrete é texto livre (formato multilinha bonito). Fora da janela, usa template aprovado — e a lista de tarefas vai num parâmetro de linha única, porque a Meta não aceita quebras de linha em parâmetros de template.
-5. **Idempotência** pela aba `Mensagens` (intent `reminder` + chave ordenada das tarefas + data local). Mesmo lembrete no mesmo dia não é reenviado.
-6. **Robustez por pessoa.** Telefone inválido ou erro de API não derruba o lote.
-
-> Arquivos além da estrutura pedida, todos pequenos e justificados: `src/time.ts` (datas/fuso sem dependência), `src/csv.ts` (requisito de CSV) e `vitest.config.ts`.
-
-## Estrutura do projeto
-
-```
-.
-├── src/
-│   ├── index.ts        # inicialização do servidor
-│   ├── config.ts       # variáveis de ambiente (zod)
-│   ├── logger.ts       # logging
-│   ├── time.ts         # utilidades de data/fuso
-│   ├── parser.ts       # interpretação das respostas
-│   ├── tasks.ts        # regras de negócio + formatação
-│   ├── sheets.ts       # Google Sheets
-│   ├── whatsapp.ts     # WhatsApp Cloud API
-│   ├── scheduler.ts    # rotina diária
-│   ├── webhook.ts      # rotas do webhook
-│   └── csv.ts          # export/import CSV
-├── tests/
-│   ├── parser.test.ts
-│   └── tasks.test.ts
-├── .env.example
-├── Dockerfile
-├── docker-compose.yml
-├── package.json
-├── tsconfig.json
-└── vitest.config.ts
-```
-
-## Pré-requisitos
-
-- Node.js 20+
-- Uma conta Meta for Developers com um app de WhatsApp.
-- Uma planilha no Google Sheets e um Service Account do Google Cloud.
-
-## Estrutura da planilha
+| `config` | Lê e valida as variáveis de ambiente com `zod`. |
+| `logger` | Logging simples; mascara segredos automaticamente. |
+| `time` | Utilidades de data e fuso horário (via API `Intl`, sem dependências). |
+| `parser` | Interpretação das respostas dos usuários (função pura). |
+| `tasks` | Regras de negócio puras, tipos do domínio e formatação de mensagens. |
+| `sheets` | Único módulo que fala com o Google Sheets (leitura de abas, escrita em lote). |
+| `whatsapp` | Envio pela Cloud API, com fila serial e rate limit. |
+| `scheduler` | Rotinas agendadas (`node-cron`): disparo diário e limpeza. |
+| `webhook` | Rotas da Meta: verificação (GET) e recebimento de mensagens (POST). |
+| `csv` | Backup e edição offline (export/import). |
 
-Quatro abas com estes nomes exatos: `Pessoas`, `Tarefas`, `Mensagens`, `Config`.
+A lógica de domínio (`parser`, `tasks`) é composta por funções puras, sem I/O — o que a torna trivialmente testável e independente das integrações externas.
 
-> ⚠️ Importante: formate as colunas de data (`data`, `skip_until`) como Texto simples e use o formato `YYYY-MM-DD`. Se forem células de data formatadas em pt-BR, podem voltar como `01/06/2026` e quebrar as comparações.
+## Modelo de dados
 
-### Aba Pessoas
+Quatro abas na planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensagens`, `Config`.
 
-Colunas: `person_id, nome, whatsapp_e164, ativo, opt_in, timezone, observacoes`
+**`Pessoas`** — quem recebe lembretes. Campos principais: `person_id`, `nome`, `whatsapp_e164`, `ativo`, `opt_in`, `timezone`. Só são contatadas pessoas com `ativo=TRUE` e `opt_in=TRUE`.
 
-    person_id,nome,whatsapp_e164,ativo,opt_in,timezone,observacoes
-    p001,Joao,+5582999999999,TRUE,TRUE,America/Sao_Paulo,
-    p002,Maria,+5582988888888,TRUE,TRUE,America/Sao_Paulo,
+**`Tarefas`** — a fonte da verdade das tarefas. Campos principais: `task_id`, `person_id`, `descricao`, `data` (`YYYY-MM-DD`), `status` (`pending`/`done`/`skipped`/`cancelled`), `periodicidade` (`daily`/`weekly`/`once`), `cobrar` (`TRUE`/`FALSE`), além de `last_reminder_at`, `completed_at` e `skip_until`.
 
-### Aba Tarefas
+**`Mensagens`** — histórico de toda interação (entrada e saída). Usada para idempotência, deduplicação e cálculo da janela de 24h. Preenchida automaticamente.
 
-Colunas: `task_id, person_id, descricao, data, status, periodicidade, cobrar, last_reminder_at, completed_at, skip_until, observacoes`
+**`Config`** — flags de comportamento em pares `key,value` (ex.: `daily_reminder_enabled`, `send_no_task_message`).
 
-- `status`: `pending` | `done` | `skipped` | `cancelled`
-- `periodicidade`: `daily` | `weekly` | `once`
-- `cobrar`: `TRUE` | `FALSE`
+> As colunas de data são lidas como texto no formato `YYYY-MM-DD`. As comparações de data dependem disso.
 
-```
-task_id,person_id,descricao,data,status,periodicidade,cobrar,last_reminder_at,completed_at,skip_until,observacoes
-t001,p001,Lavar a louça,2026-06-01,pending,daily,TRUE,,,,
-t002,p001,Tirar o lixo,2026-06-01,pending,daily,TRUE,,,,
-t003,p002,Limpar a sala,2026-06-01,pending,daily,TRUE,,,,
-```
+## Regras de negócio
 
-### Aba Mensagens
+**Numeração estável sem estado de sessão.** A lista de tarefas é sempre recomputada e ordenada por `task_id`, então `feito 1` casa com o `1` do lembrete sem o sistema precisar guardar nada entre mensagens.
 
-Colunas: `message_id, timestamp, direction, person_id, whatsapp_e164, body, parsed_intent, related_task_id, status`
+**Filtro de pendentes.** Uma tarefa é cobrada quando tem `status=pending`, `cobrar=TRUE`, não está pausada por `skip_until` e tem `data <= hoje` (evita cobrar tarefas `once` agendadas para o futuro).
 
-- `direction`: `inbound` | `outbound`
-- Apenas a linha de cabeçalho precisa existir; o sistema preenche o resto.
+**Virada de recorrentes.** No início do disparo, tarefas `daily`/`weekly` cuja instância ficou no passado voltam para `pending` no dia atual. Tarefas `once` nunca reiniciam.
 
-### Aba Config
+**Janela de 24h.** Dentro da janela, o lembrete é texto livre em formato multilinha. Fora dela, usa template aprovado, com a lista de tarefas em parâmetro de linha única (a Meta não aceita quebras de linha em parâmetros de template).
 
-Colunas: `key, value`
+**Idempotência.** O mesmo lembrete (mesma pessoa, mesma chave ordenada de tarefas, mesma data local) não é reenviado no mesmo dia, garantido por consulta à aba `Mensagens`.
 
-```
-key,value
-daily_reminder_enabled,TRUE
-send_no_task_message,FALSE
-language,pt-BR
-```
+**Robustez por pessoa.** Um telefone inválido ou erro de API não derruba o lote: o erro é registrado e o disparo segue para os demais.
 
-## Criar a planilha inicial
+**Normalização de telefone (BR).** A identificação por telefone tolera a presença ou ausência do nono dígito em celulares brasileiros (`55` + DDD + número), comparando ambos os lados por uma chave canônica.
 
-1. Crie uma planilha nova no Google Sheets.
-2. Crie quatro abas com os nomes exatos: `Pessoas`, `Tarefas`, `Mensagens`, `Config`.
-3. Em cada aba, cole o cabeçalho (primeira linha) conforme acima.
-4. Formate `data` e `skip_until` como Texto simples (Formatar → Número → Texto simples).
-5. Preencha `Pessoas`, `Tarefas` e `Config` com seus dados (use os exemplos como base).
-6. Copie o ID da planilha da URL: `https://docs.google.com/spreadsheets/d/ESTE_ID/edit`.
-7. Compartilhe a planilha com o e-mail do Service Account (próxima seção) como Editor.
-
-> Dica: você pode preencher localmente e subir via `npm run csv:import` (veja Disparo manual e CSV).
-
-## Configurar o Google Service Account
-
-1. Acesse o Google Cloud Console e crie/escolha um projeto.
-2. Ative a Google Sheets API (APIs & Services → Library → "Google Sheets API" → Enable).
-3. Crie uma Service Account (IAM & Admin → Service Accounts → Create).
-4. Na Service Account, em Keys → Add key → Create new key → JSON, baixe o arquivo.
-5. Do JSON, pegue:
-   - `client_email` → `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-   - `private_key` → `GOOGLE_PRIVATE_KEY`
-6. Compartilhe a planilha com esse `client_email` dando permissão de Editor. (É assim que o app ganha acesso — não precisa de OAuth de usuário.)
-
-### Sobre a chave privada no .env
-
-A chave tem várias linhas. Coloque-a em uma única linha, trocando as quebras por `\n`, entre aspas:
-
-```
-GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvQI...\n...==\n-----END PRIVATE KEY-----\n"
-```
-
-O `config.ts` converte os `\n` em quebras reais automaticamente.
-
-## Configurar a WhatsApp Cloud API
-
-1. Em developers.facebook.com, crie um app do tipo Business e adicione o produto WhatsApp.
-2. Em WhatsApp → API Setup, pegue:
-   - Phone number ID → `META_PHONE_NUMBER_ID`
-   - Token de acesso. O token de teste expira em 24h; para produção, crie um System User no Business Manager, gere um token permanente com a permissão `whatsapp_business_messaging` e use-o em `META_WHATSAPP_TOKEN`.
-3. Webhook (WhatsApp → Configuration → Webhook):
-   - Callback URL: `https://SEU_DOMINIO/webhook`
-   - Verify token: o mesmo valor de `META_VERIFY_TOKEN`
-   - Assine o campo `messages`.
-4. (Opcional, recomendado) Pegue o App Secret (Settings → Basic) e ponha em `META_APP_SECRET` para validar a assinatura `X-Hub-Signature-256`.
-5. Adicione números de teste (na fase de desenvolvimento) ou conclua a verificação para produção.
-
-> A `GRAPH_API_VERSION` (ex.: `v20.0`) muda com o tempo. Se a Meta descontinuar a versão, atualize a variável.
-
-## Configurar os templates na Meta
-
-Templates são necessários para iniciar conversa fora da janela de 24h. Crie-os em WhatsApp → Message Templates (categoria Utility, idioma Português (BR) = `pt_BR`).
-
-> ⚠️ Parâmetros de template não aceitam quebra de linha, tabs ou mais de 4 espaços seguidos. Por isso a lista de tarefas vai como uma linha (`1) Lavar a louça | 2) Tirar o lixo`). A versão multilinha bonita é usada nas respostas dentro da janela de 24h.
-
-### Template lembrete_tarefas
-
-Corpo (body) com dois parâmetros:
-
-```
-Oi, {{1}}. Estas são as suas tarefas de hoje: {{2}}. Responda "feito 1" para concluir uma, "feito" se já fez tudo, "status" para ver o que falta ou "ajuda".
-```
-
-- `{{1}}` = nome da pessoa
-- `{{2}}` = lista em linha única (gerada pelo código)
-- Exemplos para a revisão da Meta: `{{1}}` = `Joao`, `{{2}}` = `1) Lavar a louça | 2) Tirar o lixo`
-
-### Template sem_tarefas
-
-Corpo com um parâmetro:
-
-```
-Oi, {{1}}. Você não tem tarefas pendentes hoje.
-```
-
-- `{{1}}` = nome (exemplo de revisão: `Joao`)
-- Só é usado se `send_no_task_message=TRUE` na aba `Config`.
-
-Os nomes dos templates vêm de `WHATSAPP_TEMPLATE_TASKS` e `WHATSAPP_TEMPLATE_NO_TASKS`, e o idioma de `WHATSAPP_TEMPLATE_LANG`. Para mudar a quantidade/ordem dos parâmetros, ajuste as chamadas `sendTemplate(...)` em `src/scheduler.ts`.
-
-## Configurar o .env
-
-Copie o exemplo e preencha:
-
-```
-cp .env.example .env
-```
-
-Variáveis: veja `.env.example`. As obrigatórias são os tokens da Meta e as credenciais do Google; as demais têm padrão sensato.
-
-## Rodar localmente
-
-```
-npm install
-npm run dev
-```
-
-Ou em modo compilado:
-
-```
-npm run build && npm start
-```
-
-Verifique a saúde do servidor:
-
-```
-curl http://localhost:3000/health
-```
-
-Para testar o webhook localmente com a Meta, exponha a porta com um túnel HTTPS (ex.: `ngrok http 3000`) e use a URL pública na configuração do webhook.
-
-## Testes
-
-```
-npm test
-npm run test:watch
-```
-
-Cobrem: parser de comandos, busca de tarefas pendentes, marcação de tarefa como feita e prevenção de envio duplicado (além da virada de recorrentes e resolução de alvos).
-
-## Disparo manual e CSV
-
-Rodar a rotina diária agora (útil para testar):
-
-```
-npm run send:now
-```
-
-Exportar todas as abas para `./csv-export/`:
-
-```
-npm run csv:export
-```
-
-Importar um CSV para uma aba (⚠️ substitui todo o conteúdo da aba):
-
-```
-npm run csv:import -- Tarefas ./csv-export/Tarefas.csv
-```
-
-## Deploy
-
-Você precisa de uma URL HTTPS pública para o webhook. Opções: Render, Railway, Fly.io, etc.
-
-### Render (exemplo)
-
-1. Novo Web Service apontando para o repositório.
-2. Build: `npm install && npm run build` — Start: `npm start`.
-3. Configure as variáveis de ambiente (as mesmas do `.env`).
-4. A URL pública vira `https://seu-servico.onrender.com/webhook` no painel da Meta.
-
-### Importante sobre o agendador
-
-O lembrete diário usa `node-cron` dentro do processo. Isso só dispara se a instância estiver sempre ativa. Em planos que "dormem", o cron não roda. Duas saídas:
-
-- Use uma instância always-on (a rotina dispara sozinha no horário).
-- OU mantenha o web service só para o webhook e configure um cron job do provedor (Render Cron Jobs, Railway Cron, etc.) rodando `npm run send:now` no horário desejado.
-
-### Docker
-
-```
-docker compose up --build
-```
-
-(Passa o `.env` via `env_file`. A chave privada em uma linha com `\n` funciona normalmente.)
-
-## Exemplos de mensagens
-
-Lembrete (texto livre, dentro de 24h):
-
-```
-Oi, Joao. Suas tarefas de hoje são:
-
-1. Lavar a louça
-2. Tirar o lixo
-
-Responda:
-- "feito 1" para marcar uma tarefa como concluída
-- "feito" se todas já foram feitas
-- "status" para ver o que ainda falta
-- "ajuda" para ver os comandos
-```
-
-Pessoa responde / sistema responde:
+## Comandos do usuário
 
 | Mensagem recebida | Comportamento |
 |---|---|
-| `feito 1` | Marca a tarefa 1 como concluída e mostra o que ainda falta. |
-| `feito 1,2` | Marca as tarefas 1 e 2. |
+| `feito <numero>` | Marca a tarefa <numero> como concluída e mostra o que ainda falta. |
+| `feito <n1,...>` | Marca as tarefas <n1,...>. |
 | `feito` (1 pendente) | Marca a única tarefa. |
-| `feito` (várias pendentes) | Marca todas e avisa explicitamente que marcou todas. |
+| `feito` (várias pendentes) | Marca todas e avisa explicitamente. |
 | `feito lavar louça` | Encontra a tarefa por descrição (avisa se houver ambiguidade). |
 | `pular 1` | Pula a tarefa 1 só por hoje. |
 | `status` | Lista o que ainda falta hoje. |
-| `ajuda` | Mostra os comandos. |
-| qualquer outra coisa | "Não entendi. Envie 'ajuda'…" |
+| `ajuda` | Mostra os comandos disponíveis. |
+| qualquer outra coisa | Resposta padrão orientando a enviar `ajuda`. |
 | número não cadastrado | Avisa que o número não está cadastrado e registra a mensagem. |
 
-## Segurança e opt-in
+A interpretação é tolerante: normaliza acentos e maiúsculas, e reconhece variações como `feito`/`feita`/`concluído` ou `pular`/`adiar`.
 
-- Tokens nunca aparecem em log (o logger mascara campos sensíveis e o cliente de WhatsApp loga só o erro da Meta).
-- O `.env` não é commitado (está no `.gitignore`). Use o `.env.example` como referência.
-- Assinatura do webhook: defina `META_APP_SECRET` para validar `X-Hub-Signature-256` (recomendado em produção).
-- Opt-in obrigatório: só são contatadas pessoas com `ativo=TRUE` e `opt_in=TRUE`. As pessoas precisam ter consentido em receber mensagens pelo WhatsApp (exigência da Meta e boa prática). Mantenha `opt_in=FALSE` até obter o consentimento.
+## Comandos de administrador
+
+Administradores podem criar tarefas pelo WhatsApp, em um comando de linha única (sem estado de sessão):
+
+```
+admin <senha> add <person_id> <daily|weekly|once> <descrição>
+```
+
+A autorização é dupla: o telefone remetente precisa estar na lista de administradores **e** a senha precisa conferir. A senha trafega em texto puro pelo WhatsApp, portanto a lista de telefones é a trava principal de segurança; o corpo do comando é redigido antes de ser gravado na aba `Mensagens`, para que a senha não fique registrada.
+
+## Rotinas agendadas
+
+Duas rotinas independentes rodam via `node-cron`, ambas no fuso configurado:
+
+- **Disparo diário** de lembretes, no horário definido por `REMINDER_HOUR`/`REMINDER_MINUTE`.
+- **Limpeza da aba `Mensagens`**, mantendo apenas as últimas 48h. A retenção é segura porque idempotência, deduplicação e janela de 24h só dependem de registros recentes.
+
+Como o agendamento vive dentro do processo, ele exige uma instância sempre ativa. Em planos que "dormem", use uma instância always-on ou um cron job do provedor disparando a rotina.
+
+## Segurança e privacidade
+
+- Segredos nunca aparecem em log: o logger mascara campos sensíveis e o cliente de WhatsApp registra apenas o erro retornado pela Meta.
+- Variáveis de ambiente (tokens da Meta, credenciais do Google, senha de admin) ficam fora do versionamento.
+- Assinatura do webhook validada via `X-Hub-Signature-256` quando o segredo do app está configurado.
+- Opt-in obrigatório: só são contatadas pessoas que consentiram (`ativo=TRUE` e `opt_in=TRUE`), conforme exigência da Meta e boa prática.
 
 ## Limitações conhecidas
 
-- Números do Brasil: o `wa_id` que a Meta envia precisa bater (só dígitos) com `whatsapp_e164` da planilha. Há casos históricos do "nono dígito"; se uma resposta não for reconhecida, confira em `Mensagens` o `whatsapp_e164` registrado e ajuste o cadastro.
-- Concorrência: a planilha usa "última escrita vence". Para ~15 pessoas o risco de corrida é desprezível; para volumes maiores, considere um banco de dados.
-- `feito` com várias pendentes marca todas e avisa explicitamente (não há confirmação em duas etapas, para evitar guardar estado de sessão). É fácil evoluir para confirmação se desejar.
-- O parser de CSV é simples (RFC 4180 básico) — ideal para reimportar arquivos exportados pelo próprio sistema.
+- **Concorrência:** a planilha opera por "última escrita vence". Para <50 pessoas o risco de corrida é desprezível; volumes maiores pedem um banco de dados.
+- **`feito` com várias pendentes** marca todas e avisa, sem confirmação em duas etapas (decisão deliberada para não guardar estado de sessão).
+- **Telefones:** a identificação depende de o número enviado pela Meta casar com o cadastro; a normalização cobre o nono dígito, mas cadastros divergentes ainda precisam de ajuste manual.
+- **Parser de CSV** simples (RFC 4180 básico), adequado para reimportar arquivos exportados pelo próprio sistema.
