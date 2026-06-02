@@ -155,7 +155,7 @@ function buildDoneReply(nome: string, r: ResolveResult, remaining: Task[]): stri
   parts.push(
     remaining.length
       ? `Ainda faltam:\n${formatTaskListMultiline(remaining)}`
-      : 'É isso por hoje, tudo concluído! 🎉',
+      : 'É isso por hoje, tudo concluído!',
   );
   return parts.join('\n\n');
 }
