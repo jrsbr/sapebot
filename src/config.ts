@@ -35,6 +35,10 @@ const schema = z.object({
   WHATSAPP_TEMPLATE_NO_TASKS: z.string().default('sem_tarefas'),
   // Código de idioma dos templates conforme cadastrado na Meta (ex.: pt_BR).
   WHATSAPP_TEMPLATE_LANG: z.string().default('pt_BR'),
+
+    // ===== Admin via WhatsApp =====
+  ADMIN_PHONES: z.string().default(''), // E.164 separados por vírgula
+  ADMIN_PASSWORD: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;

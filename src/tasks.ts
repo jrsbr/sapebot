@@ -52,10 +52,20 @@ export function onlyDigits(s: string): string {
   return (s ?? '').replace(/\D/g, '');
 }
 
+// Chave canônica para números BR (55 + DDD de 2 + 9 dígitos = 13).
+// Remove o nono dígito quando presente, para casar com/sem o 9.
+export function brPhoneKey(phone: string): string {
+  let d = onlyDigits(phone);
+  if (d.length === 13 && d.startsWith('55') && d[4] === '9') {
+    d = d.slice(0, 4) + d.slice(5); // remove o 9 após 55+DDD
+  }
+  return d;
+}
+
 export function findPersonByPhone(people: Person[], phone: string): Person | undefined {
-  const digits = onlyDigits(phone);
-  if (!digits) return undefined;
-  return people.find((p) => onlyDigits(p.whatsapp_e164) === digits);
+  const key = brPhoneKey(phone);
+  if (!key) return undefined;
+  return people.find((p) => brPhoneKey(p.whatsapp_e164) === key);
 }
 
 // ===== Seleção de tarefas =====

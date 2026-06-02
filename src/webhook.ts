@@ -5,7 +5,7 @@ import { env } from './config';
 import { logger } from './logger';
 import { nowIso, localDate } from './time';
 import {
-  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage,
+  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask
 } from './sheets';
 import { parseMessage } from './parser';
 import {
@@ -13,8 +13,10 @@ import {
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
   markDone, markSkippedForToday, dedupeByRow,
   formatStatusText, formatHelpText, formatTaskListMultiline,
+  brPhoneKey, onlyDigits
 } from './tasks';
 import { sendText, SendResult } from './whatsapp';
+
 
 export const webhookRouter = Router();
 
@@ -209,6 +211,7 @@ async function handleOneMessage(
 
   const intent = parseMessage(text);
   inboundRow.parsed_intent = intent.type;
+  if (intent.type === 'admin') inboundRow.body = 'admin [REDACTED]';
 
   const tz = person.timezone || env.DEFAULT_TIMEZONE;
   const today = localDate(tz);
@@ -230,7 +233,7 @@ async function handleOneMessage(
     case 'done': {
       const r = resolveTargets(intent, pending);
       if (r.emptyList) {
-        reply = `Você não tem tarefas pendentes hoje, ${person.nome}. 🎉`;
+        reply = `Você não tem tarefas pendentes hoje, ${person.nome}.`;
         break;
       }
       if (r.ambiguous.length > 0) {
@@ -289,8 +292,54 @@ async function handleOneMessage(
         `Ok, pulei por hoje: ${skippedDesc}.`,
         remaining.length
           ? `Ainda faltam:\n${formatTaskListMultiline(remaining)}`
-          : 'Nada mais pendente por hoje. 🎉',
+          : 'Nada mais pendente por hoje.',
       ].join('\n\n');
+      break;
+    }
+
+    case 'admin': {
+      const admins = env.ADMIN_PHONES.split(',').map((s) => brPhoneKey(s)).filter(Boolean);
+      if (!admins.includes(brPhoneKey(phone))) {
+        reply = 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
+        break;
+      }
+      const tk = intent.raw.trim().split(/\s+/);
+      if (!env.ADMIN_PASSWORD || tk[1] !== env.ADMIN_PASSWORD) {
+        reply = 'Senha de admin incorreta.';
+        break;
+      }
+      const sub = (tk[2] ?? '').toLowerCase();
+      if (sub !== 'add') {
+        reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+        break;
+      }
+      const targetId = tk[3] ?? '';
+      const per = (tk[4] ?? '').toLowerCase();
+      const descricao = tk.slice(5).join(' ');
+      if (!targetId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
+        reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+        break;
+      }
+      if (!people.some((p) => p.person_id === targetId)) {
+        reply = `person_id "${targetId}" não existe na aba Pessoas.`;
+        break;
+      }
+      const maxNum = tasks.reduce((m, t) => {
+        const mm = /^t(\d+)$/.exec(t.task_id);
+        return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
+      }, 0);
+      const newId = 't' + String(maxNum + 1).padStart(3, '0');
+      const newTask: Task = {
+        __row: 0, task_id: newId, person_id: targetId, descricao,
+        data: today, status: 'pending', periodicidade: per as any,
+        cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
+      };
+      try {
+        await appendTask(newTask);
+        reply = `Tarefa criada: ${newId} → ${targetId} — "${descricao}" (${per}).`;
+      } catch {
+        reply = 'Falha ao criar a tarefa. Veja os logs.';
+      }
       break;
     }
 

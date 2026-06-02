@@ -302,3 +302,15 @@ export async function overwriteTab(tab: string, matrix: string[][]): Promise<voi
     requestBody: { values: rect },
   });
 }
+
+export async function appendTask(task: Task): Promise<void> {
+  const header = ensureHeader(TAB.tarefas, TASK_HEADER);
+  const client = getClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.tarefas}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [header.map((h) => taskToValues(task)[h] ?? '')] },
+  });
+}
