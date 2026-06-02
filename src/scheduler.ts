@@ -4,13 +4,13 @@ import { env } from './config';
 import { logger } from './logger';
 import { nowIso, localDate } from './time';
 import {
-  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages
+  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages, purgeOldDoneOnceTasks
 } from './sheets';
 import {
   Person, Task, MessageRow,
   getPendingTasksForToday, rolloverRecurringTasks,
   formatReminderText, formatNoTasksText, formatTaskListSingleLine,
-  reminderTaskKey, alreadyRemindedToday, dedupeByRow,
+  reminderTaskKey, alreadyRemindedToday, dedupeByRow
 } from './tasks';
 import { sendText, sendTemplate, SendResult } from './whatsapp';
 
@@ -190,6 +190,7 @@ export function startScheduler(): void {
       },
       { timezone: env.DEFAULT_TIMEZONE },
     );
+    
     const hh = String(hour).padStart(2, '0');
     const mm = String(minute).padStart(2, '0');
     logger.info(`Agendador ativo (${slot}): todos os dias às ${hh}:${mm} (${env.DEFAULT_TIMEZONE})`);
@@ -197,6 +198,17 @@ export function startScheduler(): void {
 
   schedule(env.REMINDER_HOUR, env.REMINDER_MINUTE, 'manha');
   schedule(env.REMINDER_HOUR_2, env.REMINDER_MINUTE_2, 'noite');
+  cron.schedule(
+    '0 4 * * *',
+    () => {
+      purgeOldDoneOnceTasks(14)
+        .then((n) => logger.info(`Tarefas once antigas removidas: ${n}.`))
+        .catch((err) =>
+          logger.error('Falha na limpeza de tarefas once', { error: (err as Error).message }),
+        );
+    },
+    { timezone: env.DEFAULT_TIMEZONE },
+  );
 
   // Limpeza diária da aba Mensagens (mantém só as últimas 48h).
   cron.schedule(

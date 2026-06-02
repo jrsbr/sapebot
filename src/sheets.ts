@@ -334,3 +334,27 @@ export async function pruneOldMessages(hours = 48): Promise<number> {
   if (removed > 0) await overwriteTab(TAB.mensagens, [header, ...kept]);
   return removed;
 }
+
+export async function purgeOldDoneOnceTasks(days = 14): Promise<number> {
+  const matrix = await dumpTab(TAB.tarefas);
+  if (matrix.length <= 1) return 0;
+  const header = matrix[0];
+  const perIdx = header.indexOf('periodicidade');
+  const stIdx = header.indexOf('status');
+  const compIdx = header.indexOf('completed_at');
+  if (perIdx === -1 || stIdx === -1 || compIdx === -1) return 0;
+
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const kept = matrix.slice(1).filter((row) => {
+    const per = String(row[perIdx] ?? '').trim().toLowerCase();
+    const st = String(row[stIdx] ?? '').trim().toLowerCase();
+    if (per !== 'once' || st !== 'done') return true; // só mexe em once+done
+    const t = Date.parse(row[compIdx] ?? '');
+    if (Number.isNaN(t)) return true; // sem data válida: não apaga, por segurança
+    return t >= cutoff; // mantém se concluída há menos de `days` dias
+  });
+
+  const removed = matrix.length - 1 - kept.length;
+  if (removed > 0) await overwriteTab(TAB.tarefas, [header, ...kept]);
+  return removed;
+}
