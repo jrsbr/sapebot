@@ -1,0 +1,37 @@
+{
+  "name": "republica-lembretes-whatsapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Disparador diário de lembretes de tarefas via WhatsApp Cloud API, com Google Sheets como fonte da verdade.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "send:now": "tsx src/scheduler.ts",
+    "csv:export": "tsx src/csv.ts export",
+    "csv:import": "tsx src/csv.ts import"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "googleapis": "^144.0.0",
+    "node-cron": "^3.0.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.16.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.2",
+    "vitest": "^2.1.0"
+  }
+}

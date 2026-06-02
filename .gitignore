@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+csv-export/
+*.log
+.DS_Store
+sapebot-14c043523c39.json
