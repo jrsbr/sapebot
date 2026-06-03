@@ -358,3 +358,16 @@ export async function purgeOldDoneOnceTasks(days = 14): Promise<number> {
   if (removed > 0) await overwriteTab(TAB.tarefas, [header, ...kept]);
   return removed;
 }
+
+// Remove uma tarefa pelo task_id, reescrevendo a aba. Retorna true se removeu.
+export async function deleteTaskById(taskId: string): Promise<boolean> {
+  const matrix = await dumpTab(TAB.tarefas);
+  if (matrix.length <= 1) return false;
+  const header = matrix[0];
+  const idIdx = header.indexOf('task_id');
+  if (idIdx === -1) return false;
+  const kept = matrix.slice(1).filter((row) => String(row[idIdx] ?? '').trim() !== taskId);
+  if (kept.length === matrix.length - 1) return false; // nada removido
+  await overwriteTab(TAB.tarefas, [header, ...kept]);
+  return true;
+}
