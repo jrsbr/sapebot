@@ -5,7 +5,7 @@ import { env } from './config';
 import { logger } from './logger';
 import { nowIso, localDate } from './time';
 import {
-  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask
+  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask, deleteTaskById
 } from './sheets';
 import { parseMessage } from './parser';
 import {
@@ -13,7 +13,7 @@ import {
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
   markDone, markSkippedForToday, dedupeByRow,
   formatStatusText, formatHelpText, formatTaskListMultiline,
-  brPhoneKey, onlyDigits
+  brPhoneKey, onlyDigits, findTaskByDescription
 } from './tasks';
 import { sendText, SendResult } from './whatsapp';
 
@@ -309,37 +309,100 @@ async function handleOneMessage(
         break;
       }
       const sub = (tk[2] ?? '').toLowerCase();
-      if (sub !== 'add') {
-        reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+
+      if (sub === 'add') {
+        const targetId = tk[3] ?? '';
+        const per = (tk[4] ?? '').toLowerCase();
+        const descricao = tk.slice(5).join(' ');
+        if (!targetId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
+          reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+          break;
+        }
+        if (!people.some((p) => p.person_id === targetId)) {
+          reply = `person_id "${targetId}" não existe na aba Pessoas.`;
+          break;
+        }
+        const maxNum = tasks.reduce((m, t) => {
+          const mm = /^t(\d+)$/.exec(t.task_id);
+          return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
+        }, 0);
+        const newId = 't' + String(maxNum + 1).padStart(3, '0');
+        const newTask: Task = {
+          __row: 0, task_id: newId, person_id: targetId, descricao,
+          data: today, status: 'pending', periodicidade: per as any,
+          cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
+        };
+        try {
+          await appendTask(newTask);
+          reply = `Tarefa criada: ${newId} → ${targetId} — "${descricao}" (${per}).`;
+        } catch {
+          reply = 'Falha ao criar a tarefa. Veja os logs.';
+        }
         break;
       }
-      const targetId = tk[3] ?? '';
-      const per = (tk[4] ?? '').toLowerCase();
-      const descricao = tk.slice(5).join(' ');
-      if (!targetId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
-        reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+
+      if (sub === 'remove') {
+        const targetId = tk[3] ?? '';
+        const ref = tk.slice(4).join(' ');
+        if (!targetId || !ref) {
+          reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
+          break;
+        }
+        const personTasks = tasks.filter((t) => t.person_id === targetId);
+        if (personTasks.length === 0) {
+          reply = `Nenhuma tarefa encontrada para ${targetId}.`;
+          break;
+        }
+        let target = personTasks.find((t) => t.task_id === ref);
+        if (!target) {
+          const { match, ambiguous } = findTaskByDescription(personTasks, ref);
+          if (ambiguous.length > 0) {
+            reply = [
+              'Mais de uma tarefa parecida:', '',
+              formatTaskListMultiline(ambiguous), '',
+              'Remova pelo task_id para evitar ambiguidade.',
+            ].join('\n');
+            break;
+          }
+          target = match;
+        }
+        if (!target) {
+          reply = `Não encontrei a tarefa "${ref}" para ${targetId}.`;
+          break;
+        }
+        try {
+          await deleteTaskById(target.task_id);
+          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetId}).`;
+        } catch {
+          reply = 'Falha ao remover a tarefa. Veja os logs.';
+        }
         break;
       }
-      if (!people.some((p) => p.person_id === targetId)) {
-        reply = `person_id "${targetId}" não existe na aba Pessoas.`;
+
+      if (sub === 'list') {
+        const targetId = tk[3] ?? '';
+        const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
+        const aberta = (t: Task) => t.status !== 'done';
+        const sel = (targetId ? tasks.filter((t) => t.person_id === targetId) : tasks)
+          .filter(aberta)
+          .sort((a, b) =>
+            a.person_id === b.person_id
+              ? a.task_id.localeCompare(b.task_id)
+              : a.person_id.localeCompare(b.person_id),
+          );
+        if (sel.length === 0) {
+          reply = targetId
+            ? `Nenhuma tarefa em aberto para ${nameOf(targetId)}.`
+            : 'Nenhuma tarefa em aberto.';
+          break;
+        }
+        reply = sel
+          .map((t) => `${t.task_id} [${nameOf(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
+          .join('\n');
         break;
       }
-      const maxNum = tasks.reduce((m, t) => {
-        const mm = /^t(\d+)$/.exec(t.task_id);
-        return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
-      }, 0);
-      const newId = 't' + String(maxNum + 1).padStart(3, '0');
-      const newTask: Task = {
-        __row: 0, task_id: newId, person_id: targetId, descricao,
-        data: today, status: 'pending', periodicidade: per as any,
-        cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
-      };
-      try {
-        await appendTask(newTask);
-        reply = `Tarefa criada: ${newId} → ${targetId} — "${descricao}" (${per}).`;
-      } catch {
-        reply = 'Falha ao criar a tarefa. Veja os logs.';
-      }
+
+      reply = 'Subcomandos: add, remove, list. Ex.: admin SENHA remove p002 t005';
       break;
     }
 
