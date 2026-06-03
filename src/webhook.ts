@@ -5,7 +5,7 @@ import { env } from './config';
 import { logger } from './logger';
 import { nowIso, localDate } from './time';
 import {
-  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask
+  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask, deleteTaskById
 } from './sheets';
 import { parseMessage } from './parser';
 import {
@@ -13,7 +13,7 @@ import {
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
   markDone, markSkippedForToday, dedupeByRow,
   formatStatusText, formatHelpText, formatTaskListMultiline,
-  brPhoneKey, onlyDigits
+  brPhoneKey, onlyDigits, findTaskByDescription
 } from './tasks';
 import { sendText, SendResult } from './whatsapp';
 
