@@ -104,7 +104,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
 
     // 4) Sem tarefas: só envia se configurado.
     if (pending.length === 0) {
-      if (!sendNoTask) continue;
+      if (!sendNoTask || slot !== 'manha') continue;
       const key = `${slot}:no-tasks`;
       if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
         skipped++;
