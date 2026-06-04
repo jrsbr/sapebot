@@ -325,7 +325,7 @@ async function handleOneMessage(
           break;
         }
         if (!pMatch) {
-          reply = `person_id ou person_name "${targetNameOrId}" não existe na aba Pessoas.`;
+          reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
           break;
         }
         const targetId = pMatch.person_id;
@@ -355,9 +355,20 @@ async function handleOneMessage(
           reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
           break;
         }
-        const personTasks = tasks.filter((t) => t.person_id === targetNameOrId);
+        const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
+        if (pAmbiguous.length > 0) {
+          reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+          break;
+        }
+        if (!pMatch) {
+          reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+          break;
+        }
+        const targetId = pMatch.person_id;
+        const targetName = pMatch.nome;
+        const personTasks = tasks.filter((t) => t.person_id === targetId);
         if (personTasks.length === 0) {
-          reply = `Nenhuma tarefa encontrada para ${targetNameOrId}.`;
+          reply = `Nenhuma tarefa encontrada para ${targetName}.`;
           break;
         }
         let target = personTasks.find((t) => t.task_id === ref);
