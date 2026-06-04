@@ -37,7 +37,7 @@ export function parseMessage(text: string): Intent {
   const rest = norm.slice(first.length).trim();
 
   if (first === 'admin') return { type: 'admin', raw }; 
-  if (HELP_WORDS.includes(norm) || HELP_WORDS.includes(first)) return { type: 'help' };
+  if (HELP_WORDS.includes(first)) return { type: 'help' };
   if (STATUS_WORDS.includes(first)) return { type: 'status' };
   if (DONE_WORDS.includes(first)) return buildActionIntent('done', rest);
   if (SKIP_WORDS.includes(first)) return buildActionIntent('skip', rest);
@@ -45,6 +45,8 @@ export function parseMessage(text: string): Intent {
   return { type: 'unknown', raw };
 }
 
+// Monta o Intent dos tipos 'done' e 'skip', levando em conta se usam
+// indice ou uma descricao
 function buildActionIntent(type: 'done' | 'skip', rest: string): Intent {
   if (!rest) return { type }; // "feito" / "pular" sem argumento
   const indices = parseIndices(rest);
