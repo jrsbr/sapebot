@@ -13,7 +13,8 @@ import {
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
   markDone, markSkippedForToday, dedupeByRow,
   formatStatusText, formatHelpText, formatTaskListMultiline,
-  brPhoneKey, onlyDigits, findTaskByDescription
+  brPhoneKey, onlyDigits, findTaskByDescription,
+  findPersonByIdOrName
 } from './tasks';
 import { sendText, SendResult } from './whatsapp';
 
@@ -311,17 +312,23 @@ async function handleOneMessage(
       const sub = (tk[2] ?? '').toLowerCase();
 
       if (sub === 'add') {
-        const targetId = tk[3] ?? '';
+        const targetNameOrId = tk[3] ?? '';
         const per = (tk[4] ?? '').toLowerCase();
         const descricao = tk.slice(5).join(' ');
-        if (!targetId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
+        if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
           reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
           break;
         }
-        if (!people.some((p) => p.person_id === targetId)) {
-          reply = `person_id "${targetId}" não existe na aba Pessoas.`;
+        const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
+        if (pAmbiguous.length > 0) {
+          reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
           break;
         }
+        if (!pMatch) {
+          reply = `person_id ou person_name "${targetNameOrId}" não existe na aba Pessoas.`;
+          break;
+        }
+        const targetId = pMatch.person_id;
         const maxNum = tasks.reduce((m, t) => {
           const mm = /^t(\d+)$/.exec(t.task_id);
           return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
@@ -334,7 +341,7 @@ async function handleOneMessage(
         };
         try {
           await appendTask(newTask);
-          reply = `Tarefa criada: ${newId} → ${targetId} — "${descricao}" (${per}).`;
+          reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
         } catch {
           reply = 'Falha ao criar a tarefa. Veja os logs.';
         }
@@ -342,15 +349,15 @@ async function handleOneMessage(
       }
 
       if (sub === 'remove') {
-        const targetId = tk[3] ?? '';
+        const targetNameOrId = tk[3] ?? '';
         const ref = tk.slice(4).join(' ');
-        if (!targetId || !ref) {
+        if (!targetNameOrId || !ref) {
           reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
           break;
         }
-        const personTasks = tasks.filter((t) => t.person_id === targetId);
+        const personTasks = tasks.filter((t) => t.person_id === targetNameOrId);
         if (personTasks.length === 0) {
-          reply = `Nenhuma tarefa encontrada para ${targetId}.`;
+          reply = `Nenhuma tarefa encontrada para ${targetNameOrId}.`;
           break;
         }
         let target = personTasks.find((t) => t.task_id === ref);
@@ -367,12 +374,12 @@ async function handleOneMessage(
           target = match;
         }
         if (!target) {
-          reply = `Não encontrei a tarefa "${ref}" para ${targetId}.`;
+          reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
           break;
         }
         try {
           await deleteTaskById(target.task_id);
-          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetId}).`;
+          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetNameOrId}).`;
         } catch {
           reply = 'Falha ao remover a tarefa. Veja os logs.';
         }
@@ -380,10 +387,10 @@ async function handleOneMessage(
       }
 
       if (sub === 'list') {
-        const targetId = tk[3] ?? '';
+        const targetNameOrId = tk[3] ?? '';
         const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
         const aberta = (t: Task) => t.status !== 'done';
-        const sel = (targetId ? tasks.filter((t) => t.person_id === targetId) : tasks)
+        const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === targetNameOrId) : tasks)
           .filter(aberta)
           .sort((a, b) =>
             a.person_id === b.person_id
@@ -391,8 +398,8 @@ async function handleOneMessage(
               : a.person_id.localeCompare(b.person_id),
           );
         if (sel.length === 0) {
-          reply = targetId
-            ? `Nenhuma tarefa em aberto para ${nameOf(targetId)}.`
+          reply = targetNameOrId
+            ? `Nenhuma tarefa em aberto para ${nameOf(targetNameOrId)}.`
             : 'Nenhuma tarefa em aberto.';
           break;
         }

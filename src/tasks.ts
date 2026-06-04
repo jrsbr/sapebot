@@ -174,6 +174,67 @@ export function findTaskByDescription(
   return { ambiguous: top };
 }
 
+// Compara a distância entre duas strings
+function damerauLevenshtein(
+  A: string,
+  B: string,
+): number {
+  const sizeA = A.length;
+  const sizeB = B.length;
+  const dp: number[][] = Array.from({ length: sizeA + 1}, () => new Array(sizeB + 1).fill(0));
+  for(let i = 0; i <= sizeA; i ++) dp[i][0] = i;
+  for(let j = 0; j <= sizeB; j ++) dp[0][j] = j;
+  
+  for(let i = 1; i <= sizeA; i++) {
+    for(let j = 1; j <= sizeB; j++){
+      const cost = A[i - 1] === B[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && A[i - 1] === B[j - 2] && A[i - 2] === B[j - 1]) dp[i][j] = Math.min(dp[i][j], dp[i - 2][j - 2] + 1);
+    }
+  }
+  return dp[sizeA][sizeB];
+}
+
+function stringSimilarity(
+  A: string,
+  B: string,
+): number {
+  const maxSize = Math.max(A.length, B.length);
+  const dist = damerauLevenshtein(A, B);
+  if (maxSize === 0) return 1; // Strings vazias
+  return 1 - dist/maxSize;
+}
+
+export function findPersonByIdOrName(
+  people: Person[],
+  query: string,
+): { match?: Person; ambiguous: Person[] } {
+  const q = normalizeText(query);
+  if(!q) return { ambiguous: [] };
+
+  const scored = people
+    .map((p) => {
+      const pName = normalizeText(p.nome);
+      const pId = normalizeText(p.person_id);
+      const sim = stringSimilarity(q, pName);
+      let score = 0;
+      if (q === pName || q === pId) score = 100;
+      else if (pName.includes(q)) score = 60;
+      else if (q.includes(pName)) score = 40;
+      else if (sim > 0.85) score = Math.round(sim * 50);
+      return { person: p, score};
+    }
+  )
+  .filter((p) => p.score > 0)
+  .sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) return { ambiguous: [] };
+  if (scored.length === 1 || scored[0].score > scored[1].score) return { match: scored[0].person, ambiguous: []};
+  
+  const top = scored.filter((s) => s.score === scored[0].score).map((s) => s.person);
+  return { ambiguous: top };
+}
+
 // ===== Resolução de alvos para done/skip =====
 
 export interface ResolveResult {
