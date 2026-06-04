@@ -390,7 +390,7 @@ async function handleOneMessage(
         }
         try {
           await deleteTaskById(target.task_id);
-          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetNameOrId}).`;
+          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
         } catch {
           reply = 'Falha ao remover a tarefa. Veja os logs.';
         }
@@ -420,7 +420,7 @@ async function handleOneMessage(
         break;
       }
 
-      reply = 'Subcomandos: add, remove, list. Ex.: admin SENHA remove p002 t005';
+      reply = 'Subcomandos: add, remove, list.';
       break;
     }
 
