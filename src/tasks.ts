@@ -1,50 +1,8 @@
 // Regras de negócio puras (sem I/O), tipos do domínio e formatação de mensagens.
 import { Intent, normalizeText } from './parser';
 import { daysBetween, isoToLocalDate } from './time';
+import type { Person, Task, MessageRow } from './types'
 
-// ===== Tipos do domínio =====
-
-export type TaskStatus = 'pending' | 'done' | 'skipped' | 'cancelled';
-export type Periodicidade = 'daily' | 'weekly' | 'once';
-
-export interface Person {
-  __row: number;
-  person_id: string;
-  nome: string;
-  whatsapp_e164: string;
-  ativo: boolean;
-  opt_in: boolean;
-  timezone: string;
-  observacoes: string;
-}
-
-export interface Task {
-  __row: number;
-  task_id: string;
-  person_id: string;
-  descricao: string;
-  data: string; // YYYY-MM-DD
-  status: TaskStatus;
-  periodicidade: Periodicidade;
-  cobrar: boolean;
-  last_reminder_at: string;
-  completed_at: string;
-  skip_until: string;
-  observacoes: string;
-}
-
-export interface MessageRow {
-  __row?: number;
-  message_id: string;
-  timestamp: string;
-  direction: 'inbound' | 'outbound';
-  person_id: string;
-  whatsapp_e164: string;
-  body: string;
-  parsed_intent: string;
-  related_task_id: string;
-  status: string;
-}
 
 // ===== Telefone =====
 
@@ -313,51 +271,3 @@ export function alreadyRemindedToday(
   );
 }
 
-// ===== Formatação de mensagens =====
-
-export function formatTaskListMultiline(tasks: Task[]): string {
-  return tasks.map((t, i) => `${i + 1}. ${t.descricao}`).join('\n');
-}
-
-// Sem quebras de linha: exigência dos parâmetros de template do WhatsApp.
-export function formatTaskListSingleLine(tasks: Task[]): string {
-  return tasks.map((t, i) => `${i + 1}) ${t.descricao}`).join(' | ');
-}
-
-export function formatReminderText(nome: string, tasks: Task[]): string {
-  return [
-    `Oi, ${nome}. Suas tarefas de hoje são:`,
-    '',
-    formatTaskListMultiline(tasks),
-    '',
-    'Responda:',
-    '- "feito 1" para marcar uma tarefa como concluída',
-    '- "feito" se todas já foram feitas',
-    '- "status" para ver o que ainda falta',
-    '- "ajuda" para ver os comandos',
-  ].join('\n');
-}
-
-export function formatNoTasksText(nome: string): string {
-  return `Oi, ${nome}. Você não tem tarefas pendentes hoje. 🎉`;
-}
-
-export function formatStatusText(nome: string, pending: Task[]): string {
-  if (pending.length === 0) {
-    return `Tudo certo, ${nome}! Você não tem tarefas pendentes hoje. 🎉`;
-  }
-  return [`${nome}, ainda faltam:`, '', formatTaskListMultiline(pending)].join('\n');
-}
-
-export function formatHelpText(): string {
-  return [
-    'Comandos disponíveis:',
-    '- "feito" → marca sua tarefa como concluída (ou todas, se houver várias)',
-    '- "feito 1" → marca a tarefa número 1 da lista de hoje',
-    '- "feito 1,2" → marca as tarefas 1 e 2',
-    '- "feito lavar louça" → marca pela descrição',
-    '- "pular 1" → pula a tarefa 1 só por hoje',
-    '- "status" → mostra o que ainda falta hoje',
-    '- "ajuda" → mostra esta mensagem',
-  ].join('\n');
-}

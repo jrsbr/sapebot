@@ -1,7 +1,7 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade } from './tasks';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade } from './types';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 

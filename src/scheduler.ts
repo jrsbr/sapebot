@@ -7,49 +7,18 @@ import {
   loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages, purgeOldDoneOnceTasks
 } from './sheets';
 import {
-  Person, Task, MessageRow,
   getPendingTasksForToday, rolloverRecurringTasks,
-  formatReminderText, formatNoTasksText, formatTaskListSingleLine,
   reminderTaskKey, alreadyRemindedToday, dedupeByRow
 } from './tasks';
-import { sendText, sendTemplate, SendResult } from './whatsapp';
+import { sendText, sendTemplate } from './whatsapp';
+import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h } from './messaging';
+import type { Person, Task, MessageRow, SendResult } from './types'
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
   const v = cfg[key];
   if (v == null) return def;
   const s = v.trim().toUpperCase();
   return s === 'TRUE' || s === '1' || s === 'SIM';
-}
-
-function within24h(messages: MessageRow[], personId: string): boolean {
-  const inbound = messages.filter(
-    (m) => m.direction === 'inbound' && m.person_id === personId && m.timestamp,
-  );
-  if (inbound.length === 0) return false;
-  const last = inbound.reduce((acc, m) => (m.timestamp > acc ? m.timestamp : acc), '');
-  const t = Date.parse(last);
-  if (Number.isNaN(t)) return false;
-  return Date.now() - t < 24 * 60 * 60 * 1000;
-}
-
-function buildOutbound(
-  person: Person,
-  body: string,
-  intent: string,
-  relatedKey: string,
-  result: SendResult,
-): MessageRow {
-  return {
-    message_id: result.id ?? `out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: nowIso(),
-    direction: 'outbound',
-    person_id: person.person_id,
-    whatsapp_e164: person.whatsapp_e164,
-    body,
-    parsed_intent: intent,
-    related_task_id: relatedKey,
-    status: result.ok ? 'sent' : `error:${result.error ?? 'desconhecido'}`,
-  };
 }
 
 export async function runDailyReminders(slot = 'manha'): Promise<void> {
@@ -115,7 +84,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
         : await sendTemplate(person.whatsapp_e164, env.WHATSAPP_TEMPLATE_NO_TASKS, [
             { type: 'text', text: person.nome },
           ]);
-      messagesToLog.push(buildOutbound(person, `[sem tarefas] ${person.nome}`, 'reminder', key, result));
+      messagesToLog.push(buildOutboundRow(person.whatsapp_e164,person.person_id, `[sem tarefas] ${person.nome}`, 'reminder', key, result));
       result.ok ? sent++ : errors++;
       continue;
     }
@@ -143,7 +112,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
       ]);
     }
 
-    messagesToLog.push(buildOutbound(person, bodyForLog, 'reminder', key, result));
+    messagesToLog.push(buildOutboundRow(person.whatsapp_e164,person.person_id, bodyForLog, 'reminder', key, result));
 
     if (result.ok) {
       sent++;

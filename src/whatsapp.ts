@@ -4,19 +4,11 @@ import { env } from './config';
 import { logger } from './logger';
 import { sleep } from './time';
 import { onlyDigits } from './tasks';
+import type { SendResult, TemplateParam } from './types';
 
 const BASE_URL = `https://graph.facebook.com/${env.GRAPH_API_VERSION}/${env.META_PHONE_NUMBER_ID}/messages`;
 
-export interface SendResult {
-  ok: boolean;
-  id?: string;
-  error?: string;
-}
 
-export interface TemplateParam {
-  type: 'text';
-  text: string;
-}
 
 // ===== Fila serial + rate limit =====
 const MIN_INTERVAL_MS = 1000;
