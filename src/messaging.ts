@@ -71,3 +71,13 @@ export function buildOutboundRow(
   };
 }
 
+export function within24h(messages: MessageRow[], personId: string): boolean {
+  const inbound = messages.filter(
+    (m) => m.direction === 'inbound' && m.person_id === personId && m.timestamp,
+  );
+  if (inbound.length === 0) return false;
+  const last = inbound.reduce((acc, m) => (m.timestamp > acc ? m.timestamp : acc), '');
+  const t = Date.parse(last);
+  if (Number.isNaN(t)) return false;
+  return Date.now() - t < 24 * 60 * 60 * 1000;
+}

@@ -11,7 +11,7 @@ import {
   reminderTaskKey, alreadyRemindedToday, dedupeByRow
 } from './tasks';
 import { sendText, sendTemplate } from './whatsapp';
-import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow } from './messaging';
+import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h } from './messaging';
 import type { Person, Task, MessageRow, SendResult } from './types'
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
@@ -19,17 +19,6 @@ function configFlag(cfg: Record<string, string>, key: string, def: boolean): boo
   if (v == null) return def;
   const s = v.trim().toUpperCase();
   return s === 'TRUE' || s === '1' || s === 'SIM';
-}
-
-function within24h(messages: MessageRow[], personId: string): boolean {
-  const inbound = messages.filter(
-    (m) => m.direction === 'inbound' && m.person_id === personId && m.timestamp,
-  );
-  if (inbound.length === 0) return false;
-  const last = inbound.reduce((acc, m) => (m.timestamp > acc ? m.timestamp : acc), '');
-  const t = Date.parse(last);
-  if (Number.isNaN(t)) return false;
-  return Date.now() - t < 24 * 60 * 60 * 1000;
 }
 
 export async function runDailyReminders(slot = 'manha'): Promise<void> {
