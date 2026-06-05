@@ -9,14 +9,15 @@ import {
 } from './sheets';
 import { parseMessage } from './parser';
 import {
-  Person, Task, MessageRow, ResolveResult,
+  ResolveResult,
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
   markDone, markSkippedForToday, dedupeByRow,
-  formatStatusText, formatHelpText, formatTaskListMultiline,
   brPhoneKey, onlyDigits, findTaskByDescription,
   findPersonByIdOrName
 } from './tasks';
-import { sendText, SendResult } from './whatsapp';
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow } from './messaging';
+import { sendText } from './whatsapp';
+import type { Person, Task, MessageRow, SendResult } from './types'
 
 
 export const webhookRouter = Router();
@@ -104,27 +105,6 @@ async function processWebhookBody(body: any): Promise<void> {
   }
 }
 
-function outboundFor(
-  phone: string,
-  personId: string,
-  body: string,
-  intent: string,
-  relatedKey: string,
-  result: SendResult,
-): MessageRow {
-  return {
-    message_id: result.id ?? `out-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    timestamp: nowIso(),
-    direction: 'outbound',
-    person_id: personId,
-    whatsapp_e164: phone,
-    body,
-    parsed_intent: intent,
-    related_task_id: relatedKey,
-    status: result.ok ? 'sent' : `error:${result.error ?? 'desconhecido'}`,
-  };
-}
-
 async function safeAppend(row: MessageRow): Promise<void> {
   try {
     await appendMessage(row);
@@ -197,7 +177,8 @@ async function handleOneMessage(
     const reply =
       'Olá! Este número não está cadastrado para receber lembretes de tarefas. Fale com o Pituxo para ser incluído.';
     const r = await sendText(phone, reply);
-    await safeAppend(outboundFor(phone, '', reply, 'unknown_number', '', r));
+    const unknownPerson = 
+    await safeAppend(buildOutboundRow(phone, '', reply, 'unknown_number', '', r));
     return;
   }
 
@@ -206,7 +187,7 @@ async function handleOneMessage(
     await safeAppend(inboundRow);
     const reply = 'Por enquanto eu entendo apenas mensagens de texto. Envie "ajuda" para ver os comandos.';
     const r = await sendText(person.whatsapp_e164, reply);
-    await safeAppend(outboundFor(person.whatsapp_e164, person.person_id, reply, 'help', '', r));
+    await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, 'help', '', r));
     return;
   }
 
@@ -438,5 +419,5 @@ async function handleOneMessage(
 
   await safeAppend(inboundRow);
   const sendResult = await sendText(person.whatsapp_e164, reply);
-  await safeAppend(outboundFor(person.whatsapp_e164, person.person_id, reply, intent.type, relatedKey, sendResult));
+  await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, relatedKey, sendResult));
 }
