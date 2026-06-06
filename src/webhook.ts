@@ -15,10 +15,10 @@ import {
   brPhoneKey, onlyDigits, findTaskByDescription,
   findPersonByIdOrName
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow } from './messaging';
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow
+ } from './messaging';
 import { sendText } from './whatsapp';
-import type { Person, Task, MessageRow, SendResult } from './types'
-
+import type { Person, Task, MessageRow, IncomingMessage } from './types'
 
 export const webhookRouter = Router();
 
@@ -60,13 +60,6 @@ function verifySignature(req: Request): boolean {
   } catch {
     return false;
   }
-}
-
-interface IncomingMessage {
-  from: string; // wa_id (apenas dígitos)
-  id: string;
-  type: string;
-  text?: { body: string };
 }
 
 function extractMessages(body: any): IncomingMessage[] {
@@ -157,18 +150,7 @@ async function handleOneMessage(
   const text = msg.type === 'text' ? (msg.text?.body ?? '') : '';
   const phone = msg.from;
   const person = findPersonByPhone(people, phone);
-
-  const inboundRow: MessageRow = {
-    message_id: msg.id || `in-${Date.now()}`,
-    timestamp: nowIso(),
-    direction: 'inbound',
-    person_id: person?.person_id ?? '',
-    whatsapp_e164: phone,
-    body: text,
-    parsed_intent: '',
-    related_task_id: '',
-    status: 'received',
-  };
+  const inboundRow = buildInboundRow(msg, person);
 
   // 3) Número não cadastrado.
   if (!person) {
@@ -293,111 +275,17 @@ async function handleOneMessage(
       const sub = (tk[2] ?? '').toLowerCase();
 
       if (sub === 'add') {
-        const targetNameOrId = tk[3] ?? '';
-        const per = (tk[4] ?? '').toLowerCase();
-        const descricao = tk.slice(5).join(' ');
-        if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
-          reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
-          break;
-        }
-        const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
-        if (pAmbiguous.length > 0) {
-          reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
-          break;
-        }
-        if (!pMatch) {
-          reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
-          break;
-        }
-        const targetId = pMatch.person_id;
-        const maxNum = tasks.reduce((m, t) => {
-          const mm = /^t(\d+)$/.exec(t.task_id);
-          return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
-        }, 0);
-        const newId = 't' + String(maxNum + 1).padStart(3, '0');
-        const newTask: Task = {
-          __row: 0, task_id: newId, person_id: targetId, descricao,
-          data: today, status: 'pending', periodicidade: per as any,
-          cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
-        };
-        try {
-          await appendTask(newTask);
-          reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
-        } catch {
-          reply = 'Falha ao criar a tarefa. Veja os logs.';
-        }
+        reply = await handleAdminAdd(tk, people, tasks, today);
         break;
       }
 
       if (sub === 'remove') {
-        const targetNameOrId = tk[3] ?? '';
-        const ref = tk.slice(4).join(' ');
-        if (!targetNameOrId || !ref) {
-          reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
-          break;
-        }
-        const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
-        if (pAmbiguous.length > 0) {
-          reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
-          break;
-        }
-        if (!pMatch) {
-          reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
-          break;
-        }
-        const targetId = pMatch.person_id;
-        const targetName = pMatch.nome;
-        const personTasks = tasks.filter((t) => t.person_id === targetId);
-        if (personTasks.length === 0) {
-          reply = `Nenhuma tarefa encontrada para ${targetName}.`;
-          break;
-        }
-        let target = personTasks.find((t) => t.task_id === ref);
-        if (!target) {
-          const { match, ambiguous } = findTaskByDescription(personTasks, ref);
-          if (ambiguous.length > 0) {
-            reply = [
-              'Mais de uma tarefa parecida:', '',
-              formatTaskListMultiline(ambiguous), '',
-              'Remova pelo task_id para evitar ambiguidade.',
-            ].join('\n');
-            break;
-          }
-          target = match;
-        }
-        if (!target) {
-          reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
-          break;
-        }
-        try {
-          await deleteTaskById(target.task_id);
-          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
-        } catch {
-          reply = 'Falha ao remover a tarefa. Veja os logs.';
-        }
+        reply = await handleAdminRemove(tk, people, tasks);
         break;
       }
 
       if (sub === 'list') {
-        const targetNameOrId = tk[3] ?? '';
-        const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
-        const aberta = (t: Task) => t.status !== 'done';
-        const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === targetNameOrId) : tasks)
-          .filter(aberta)
-          .sort((a, b) =>
-            a.person_id === b.person_id
-              ? a.task_id.localeCompare(b.task_id)
-              : a.person_id.localeCompare(b.person_id),
-          );
-        if (sel.length === 0) {
-          reply = targetNameOrId
-            ? `Nenhuma tarefa em aberto para ${nameOf(targetNameOrId)}.`
-            : 'Nenhuma tarefa em aberto.';
-          break;
-        }
-        reply = sel
-          .map((t) => `${t.task_id} [${nameOf(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
-          .join('\n');
+        reply = await handleAdminList(tk, people, tasks);
         break;
       }
 
@@ -420,4 +308,114 @@ async function handleOneMessage(
   await safeAppend(inboundRow);
   const sendResult = await sendText(person.whatsapp_e164, reply);
   await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, relatedKey, sendResult));
+}
+
+async function handleAdminAdd(
+  tokens: string[],
+  people: Person[],
+  tasks: Task[],
+  today: string,
+): Promise<string> {
+  let reply: string;
+  const targetNameOrId = tokens[3] ?? '';
+  const per = (tokens[4] ?? '').toLowerCase();
+  const descricao = tokens.slice(5).join(' ');
+  if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
+    return reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+  }
+  const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
+  if (pAmbiguous.length > 0) {
+    return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+  }
+  if (!pMatch) {
+    return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+  }
+  const targetId = pMatch.person_id;
+  const maxNum = tasks.reduce((m, t) => {
+    const mm = /^t(\d+)$/.exec(t.task_id);
+    return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
+  }, 0);
+  const newId = 't' + String(maxNum + 1).padStart(3, '0');
+  const newTask: Task = {
+    __row: 0, task_id: newId, person_id: targetId, descricao,
+    data: today, status: 'pending', periodicidade: per as any,
+    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
+  };
+  try {
+    await appendTask(newTask);
+    return reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
+  } catch {
+    return reply = 'Falha ao criar a tarefa. Veja os logs.';
+  }
+}
+
+async function handleAdminRemove(
+  tokens: string[],
+  people: Person[],
+  tasks: Task[],
+): Promise<string>{
+  const targetNameOrId = tokens[3] ?? '';
+  const ref = tokens.slice(4).join(' ');
+  let reply: string;
+  if (!targetNameOrId || !ref) {
+  return reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
+  }
+  const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
+  if (pAmbiguous.length > 0) {
+  return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+  }
+  if (!pMatch) {
+  return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+  }
+  const targetId = pMatch.person_id;
+  const targetName = pMatch.nome;
+  const personTasks = tasks.filter((t) => t.person_id === targetId);
+  if (personTasks.length === 0) {
+  return reply = `Nenhuma tarefa encontrada para ${targetName}.`;
+  }
+  let target = personTasks.find((t) => t.task_id === ref);
+  if (!target) {
+  const { match, ambiguous } = findTaskByDescription(personTasks, ref);
+  if (ambiguous.length > 0) {
+    return reply = [
+      'Mais de uma tarefa parecida:', '',
+      formatTaskListMultiline(ambiguous), '',
+      'Remova pelo task_id para evitar ambiguidade.',
+    ].join('\n');
+  }
+  target = match;
+  }
+  if (!target) {
+  return reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
+  }
+  try {
+  await deleteTaskById(target.task_id);
+  return reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+  } catch {
+  return reply = 'Falha ao remover a tarefa. Veja os logs.';
+  }
+}
+
+async function handleAdminList(
+  tokens: string[],
+  people: Person[],
+  tasks: Task[],
+): Promise<string>{
+  const targetNameOrId = tokens[3] ?? '';
+  const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
+  const aberta = (t: Task) => t.status !== 'done';
+  const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === targetNameOrId) : tasks)
+  .filter(aberta)
+  .sort((a, b) =>
+    a.person_id === b.person_id
+      ? a.task_id.localeCompare(b.task_id)
+      : a.person_id.localeCompare(b.person_id),
+  );
+  let reply: string;
+  if (sel.length === 0) {
+  return reply = targetNameOrId ? `Nenhuma tarefa em aberto para ${nameOf(targetNameOrId)}.` : 'Nenhuma tarefa em aberto.';
+  }
+  return reply = sel
+  .map((t) => `${t.task_id} [${nameOf(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
+  .join('\n');
 }
