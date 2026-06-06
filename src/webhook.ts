@@ -280,51 +280,7 @@ async function handleOneMessage(
       }
 
       if (sub === 'remove') {
-        const targetNameOrId = tk[3] ?? '';
-        const ref = tk.slice(4).join(' ');
-        if (!targetNameOrId || !ref) {
-          reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
-          break;
-        }
-        const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
-        if (pAmbiguous.length > 0) {
-          reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
-          break;
-        }
-        if (!pMatch) {
-          reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
-          break;
-        }
-        const targetId = pMatch.person_id;
-        const targetName = pMatch.nome;
-        const personTasks = tasks.filter((t) => t.person_id === targetId);
-        if (personTasks.length === 0) {
-          reply = `Nenhuma tarefa encontrada para ${targetName}.`;
-          break;
-        }
-        let target = personTasks.find((t) => t.task_id === ref);
-        if (!target) {
-          const { match, ambiguous } = findTaskByDescription(personTasks, ref);
-          if (ambiguous.length > 0) {
-            reply = [
-              'Mais de uma tarefa parecida:', '',
-              formatTaskListMultiline(ambiguous), '',
-              'Remova pelo task_id para evitar ambiguidade.',
-            ].join('\n');
-            break;
-          }
-          target = match;
-        }
-        if (!target) {
-          reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
-          break;
-        }
-        try {
-          await deleteTaskById(target.task_id);
-          reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
-        } catch {
-          reply = 'Falha ao remover a tarefa. Veja os logs.';
-        }
+        reply = await handleAdminSub(tk, people, tasks);
         break;
       }
 
@@ -408,5 +364,52 @@ async function handleAdminAdd(
     return reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
   } catch {
     return reply = 'Falha ao criar a tarefa. Veja os logs.';
+  }
+}
+
+async function handleAdminSub(
+  tokens: string[],
+  people: Person[],
+  tasks: Task[],
+): Promise<string>{
+  const targetNameOrId = tokens[3] ?? '';
+  const ref = tokens.slice(4).join(' ');
+  let reply: string;
+  if (!targetNameOrId || !ref) {
+  return reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
+  }
+  const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
+  if (pAmbiguous.length > 0) {
+  return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+  }
+  if (!pMatch) {
+  return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+  }
+  const targetId = pMatch.person_id;
+  const targetName = pMatch.nome;
+  const personTasks = tasks.filter((t) => t.person_id === targetId);
+  if (personTasks.length === 0) {
+  return reply = `Nenhuma tarefa encontrada para ${targetName}.`;
+  }
+  let target = personTasks.find((t) => t.task_id === ref);
+  if (!target) {
+  const { match, ambiguous } = findTaskByDescription(personTasks, ref);
+  if (ambiguous.length > 0) {
+    return reply = [
+      'Mais de uma tarefa parecida:', '',
+      formatTaskListMultiline(ambiguous), '',
+      'Remova pelo task_id para evitar ambiguidade.',
+    ].join('\n');
+  }
+  target = match;
+  }
+  if (!target) {
+  return reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
+  }
+  try {
+  await deleteTaskById(target.task_id);
+  return reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+  } catch {
+  return reply = 'Falha ao remover a tarefa. Veja os logs.';
   }
 }
