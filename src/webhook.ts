@@ -280,30 +280,12 @@ async function handleOneMessage(
       }
 
       if (sub === 'remove') {
-        reply = await handleAdminSub(tk, people, tasks);
+        reply = await handleAdminRemove(tk, people, tasks);
         break;
       }
 
       if (sub === 'list') {
-        const targetNameOrId = tk[3] ?? '';
-        const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
-        const aberta = (t: Task) => t.status !== 'done';
-        const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === targetNameOrId) : tasks)
-          .filter(aberta)
-          .sort((a, b) =>
-            a.person_id === b.person_id
-              ? a.task_id.localeCompare(b.task_id)
-              : a.person_id.localeCompare(b.person_id),
-          );
-        if (sel.length === 0) {
-          reply = targetNameOrId
-            ? `Nenhuma tarefa em aberto para ${nameOf(targetNameOrId)}.`
-            : 'Nenhuma tarefa em aberto.';
-          break;
-        }
-        reply = sel
-          .map((t) => `${t.task_id} [${nameOf(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
-          .join('\n');
+        reply = await handleAdminList(tk, people, tasks);
         break;
       }
 
@@ -367,7 +349,7 @@ async function handleAdminAdd(
   }
 }
 
-async function handleAdminSub(
+async function handleAdminRemove(
   tokens: string[],
   people: Person[],
   tasks: Task[],
@@ -412,4 +394,28 @@ async function handleAdminSub(
   } catch {
   return reply = 'Falha ao remover a tarefa. Veja os logs.';
   }
+}
+
+async function handleAdminList(
+  tokens: string[],
+  people: Person[],
+  tasks: Task[],
+): Promise<string>{
+  const targetNameOrId = tokens[3] ?? '';
+  const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
+  const aberta = (t: Task) => t.status !== 'done';
+  const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === targetNameOrId) : tasks)
+  .filter(aberta)
+  .sort((a, b) =>
+    a.person_id === b.person_id
+      ? a.task_id.localeCompare(b.task_id)
+      : a.person_id.localeCompare(b.person_id),
+  );
+  let reply: string;
+  if (sel.length === 0) {
+  return reply = targetNameOrId ? `Nenhuma tarefa em aberto para ${nameOf(targetNameOrId)}.` : 'Nenhuma tarefa em aberto.';
+  }
+  return reply = sel
+  .map((t) => `${t.task_id} [${nameOf(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
+  .join('\n');
 }
