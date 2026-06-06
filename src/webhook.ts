@@ -15,10 +15,10 @@ import {
   brPhoneKey, onlyDigits, findTaskByDescription,
   findPersonByIdOrName
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow } from './messaging';
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow
+ } from './messaging';
 import { sendText } from './whatsapp';
-import type { Person, Task, MessageRow, SendResult } from './types'
-
+import type { Person, Task, MessageRow, IncomingMessage } from './types'
 
 export const webhookRouter = Router();
 
@@ -60,13 +60,6 @@ function verifySignature(req: Request): boolean {
   } catch {
     return false;
   }
-}
-
-interface IncomingMessage {
-  from: string; // wa_id (apenas dígitos)
-  id: string;
-  type: string;
-  text?: { body: string };
 }
 
 function extractMessages(body: any): IncomingMessage[] {
@@ -157,18 +150,7 @@ async function handleOneMessage(
   const text = msg.type === 'text' ? (msg.text?.body ?? '') : '';
   const phone = msg.from;
   const person = findPersonByPhone(people, phone);
-
-  const inboundRow: MessageRow = {
-    message_id: msg.id || `in-${Date.now()}`,
-    timestamp: nowIso(),
-    direction: 'inbound',
-    person_id: person?.person_id ?? '',
-    whatsapp_e164: phone,
-    body: text,
-    parsed_intent: '',
-    related_task_id: '',
-    status: 'received',
-  };
+  const inboundRow = buildInboundRow(msg, person);
 
   // 3) Número não cadastrado.
   if (!person) {

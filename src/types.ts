@@ -52,3 +52,10 @@ export interface TemplateParam {
   type: 'text';
   text: string;
 }
+
+export interface IncomingMessage {
+  from: string; // wa_id (apenas dígitos)
+  id: string;
+  type: string;
+  text?: { body: string };
+}

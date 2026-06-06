@@ -1,4 +1,4 @@
-import type { Task, Person, MessageRow, SendResult } from './types';
+import type { Task, Person, MessageRow, SendResult, IncomingMessage } from './types';
 import { nowIso } from './time';
 
 // ===== Formatação de mensagens =====
@@ -48,6 +48,23 @@ export function formatHelpText(): string {
     '- "status" → mostra o que ainda falta hoje',
     '- "ajuda" → mostra esta mensagem',
   ].join('\n');
+}
+
+export function buildInboundRow(
+  msg: IncomingMessage,
+  person: Person | undefined,
+): MessageRow {
+  return {
+    message_id: msg.id || `in-${Date.now()}`,
+    timestamp: nowIso(),
+    direction: 'inbound',
+    person_id: person?.person_id ?? '',
+    whatsapp_e164: msg.from,
+    body: msg.type === 'text' ? (msg.text?.body ?? '') : '',
+    parsed_intent: '',
+    related_task_id: '',
+    status: 'received',
+  };
 }
 
 export function buildOutboundRow(
