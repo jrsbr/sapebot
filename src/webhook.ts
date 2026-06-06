@@ -275,39 +275,7 @@ async function handleOneMessage(
       const sub = (tk[2] ?? '').toLowerCase();
 
       if (sub === 'add') {
-        const targetNameOrId = tk[3] ?? '';
-        const per = (tk[4] ?? '').toLowerCase();
-        const descricao = tk.slice(5).join(' ');
-        if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
-          reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
-          break;
-        }
-        const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
-        if (pAmbiguous.length > 0) {
-          reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
-          break;
-        }
-        if (!pMatch) {
-          reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
-          break;
-        }
-        const targetId = pMatch.person_id;
-        const maxNum = tasks.reduce((m, t) => {
-          const mm = /^t(\d+)$/.exec(t.task_id);
-          return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
-        }, 0);
-        const newId = 't' + String(maxNum + 1).padStart(3, '0');
-        const newTask: Task = {
-          __row: 0, task_id: newId, person_id: targetId, descricao,
-          data: today, status: 'pending', periodicidade: per as any,
-          cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
-        };
-        try {
-          await appendTask(newTask);
-          reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
-        } catch {
-          reply = 'Falha ao criar a tarefa. Veja os logs.';
-        }
+        reply = await handleAdminAdd(tk, people, tasks, today);
         break;
       }
 
@@ -402,4 +370,43 @@ async function handleOneMessage(
   await safeAppend(inboundRow);
   const sendResult = await sendText(person.whatsapp_e164, reply);
   await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, relatedKey, sendResult));
+}
+
+async function handleAdminAdd(
+  tokens: string[],
+  people: Person[],
+  tasks: Task[],
+  today: string,
+): Promise<string> {
+  let reply: string;
+  const targetNameOrId = tokens[3] ?? '';
+  const per = (tokens[4] ?? '').toLowerCase();
+  const descricao = tokens.slice(5).join(' ');
+  if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
+    return reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+  }
+  const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
+  if (pAmbiguous.length > 0) {
+    return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+  }
+  if (!pMatch) {
+    return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+  }
+  const targetId = pMatch.person_id;
+  const maxNum = tasks.reduce((m, t) => {
+    const mm = /^t(\d+)$/.exec(t.task_id);
+    return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
+  }, 0);
+  const newId = 't' + String(maxNum + 1).padStart(3, '0');
+  const newTask: Task = {
+    __row: 0, task_id: newId, person_id: targetId, descricao,
+    data: today, status: 'pending', periodicidade: per as any,
+    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
+  };
+  try {
+    await appendTask(newTask);
+    return reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
+  } catch {
+    return reply = 'Falha ao criar a tarefa. Veja os logs.';
+  }
 }
