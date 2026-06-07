@@ -194,33 +194,7 @@ async function handleOneMessage(
       break;
 
     case 'done': {
-      const r = resolveTargets(intent, pending);
-      if (r.emptyList) {
-        reply = `Você não tem tarefas pendentes hoje, ${person.nome}.`;
-        break;
-      }
-      if (r.ambiguous.length > 0) {
-        reply = [
-          'Encontrei mais de uma tarefa parecida. Qual delas?',
-          '',
-          formatTaskListMultiline(r.ambiguous),
-          '',
-          'Responda com o número (ex.: "feito 1").',
-        ].join('\n');
-        break;
-      }
-      if (r.targets.length === 0) {
-        reply = `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim();
-        break;
-      }
-      const stamp = nowIso();
-      for (const t of r.targets) {
-        markDone(t, stamp);
-        changed.push(t);
-      }
-      relatedKey = r.targets.map((t) => t.task_id).join(',');
-      const remaining = getPendingTasksForToday(tasks, person.person_id, today);
-      reply = buildDoneReply(person.nome, r, remaining);
+      ({ reply, relatedKey } = handleDone(intent, pending, person, today, changed, relatedKey, tasks));
       break;
     }
 
@@ -395,8 +369,43 @@ function handleAdminList(
   .join('\n');
 }
 
+function handleDone(
+  intent: Extract<Intent, {type: 'done' | 'skip'}>,
+  pending: Task[],
+  person: Person,
+  today: string,
+  changed: Task[],
+  relatedKey: string,
+  tasks: Task[]
+): { reply: string, relatedKey: string } {
+  const r = resolveTargets(intent, pending);
+  if (r.emptyList) {
+  return { reply: `Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey };
+  }
+  if (r.ambiguous.length > 0) {
+    return {reply: [
+      'Encontrei mais de uma tarefa parecida. Qual delas?',
+      '',
+      formatTaskListMultiline(r.ambiguous),
+      '',
+      'Responda com o número (ex.: "feito 1").',
+    ].join('\n'), relatedKey};
+  }
+  if (r.targets.length === 0) {
+    return { reply: `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim(), relatedKey };
+  }
+  const stamp = nowIso();
+  for (const t of r.targets) {
+    markDone(t, stamp);
+    changed.push(t);
+  }
+  relatedKey = r.targets.map((t) => t.task_id).join(',');
+  const remaining = getPendingTasksForToday(tasks, person.person_id, today);
+  return { reply: buildDoneReply(person.nome, r, remaining), relatedKey };
+}
+
 function handleSkip(
-  intent: Extract<Intent, {type: 'done'| 'skip'}>,
+  intent: Extract<Intent, {type: 'done' | 'skip'}>,
   pending: Task[],
   person: Person,
   today: string,
