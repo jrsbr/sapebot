@@ -33,3 +33,12 @@ export function daysBetween(fromYmd: string, toYmd: string): number {
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
+
+export function logicalDate(
+  tz: string,
+  date: Date = new Date(),
+  shift: 3,
+): string {
+  const shifted = new Date(date.getTime() - shift * 60 * 60 * 1000);
+  return localDate(tz, shifted);
+}
