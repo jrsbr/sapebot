@@ -2,6 +2,8 @@
 
 export type TaskStatus = 'pending' | 'done' | 'skipped' | 'cancelled';
 export type Periodicidade = 'daily' | 'weekly' | 'once';
+export type AutoTaskStatus = 'done' | 'missed' | 'pending';
+export type TaskKind = 'normal' | 'auto';
 
 export interface Person {
   __row: number;
@@ -59,3 +61,34 @@ export interface IncomingMessage {
   type: string;
   text?: { body: string };
 }
+
+export interface AutoTask {
+  __row: number;
+  task_id: string;
+  descricao: string;
+}
+
+export interface Designation {
+  __row: number;
+  task_id: string;
+  person_id: string;
+  count: number;
+}
+
+export interface Designated {
+  __row: number;
+  data: string;
+  task_id: string;
+  person_id: string;
+  status: AutoTaskStatus;
+}
+
+export interface GenericTaskBase {
+  task_id: string;
+  descricao: string;
+  data: string;
+  person_id: string;
+}
+export type GenericTask =
+| (GenericTaskBase & { kind: 'normal'; status: TaskStatus })
+| (GenericTaskBase & { kind: 'auto'; status: AutoTaskStatus });
