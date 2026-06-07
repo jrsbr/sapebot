@@ -1,13 +1,17 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade } from './types';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus } from './types';
+import { logger } from './logger';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 export const TAB = {
   pessoas: 'Pessoas',
   tarefas: 'Tarefas',
+  tarefasAuto: 'TarefasAuto',
+  designacoes: 'Designacoes',
+  designado: 'Designado',
   mensagens: 'Mensagens',
   config: 'Config',
 } as const;
@@ -57,6 +61,15 @@ function boolStr(b: boolean): string {
 function asStatus(v: string): TaskStatus {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === 'done' || s === 'skipped' || s === 'cancelled') return s;
+  if (s !== '') logger.warn(`status inválido: "${v}", assumindo pending`);
+  return 'pending';
+}
+function asAutoStatus(v: string): AutoTaskStatus {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'done') return 'done';
+  if (s === 'missed') return 'missed';
+  if (s === 'pending') return 'pending';
+  if (s !== '') logger.warn(`status auto inválido: "${v}", assumindo pending`);
   return 'pending';
 }
 function asPeriod(v: string): Periodicidade {
@@ -226,6 +239,42 @@ export async function loadMessages(): Promise<MessageRow[]> {
     related_task_id: r.values['related_task_id'] ?? '',
     status: r.values['status'] ?? '',
   }));
+}
+
+export async function loadAutoTasks(): Promise<AutoTask[]> {
+  const { header, rows } = await loadTable(TAB.tarefasAuto);
+  headerCache[TAB.tarefasAuto] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    task_id: r.values['task_id'] ?? '',
+    descricao: r.values['descricao'] ?? '',
+  }))
+  .filter((r) => ((r.task_id ?? '').trim() !== ''));
+}
+
+export async function loadDesignation(): Promise<Designation[]> {
+  const { header, rows } = await loadTable(TAB.designacoes);
+  headerCache[TAB.designacoes] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    task_id: r.values['task_id'] ?? '',
+    person_id: r.values['person_id'] ?? '',
+    count: parseInt(r.values['count'] ?? '0', 10),
+  }))
+  .filter((r) => ((r.task_id ?? '').trim() !== ''));
+}
+
+export async function loadDesignated(): Promise<Designated[]> {
+  const { header, rows } = await loadTable(TAB.designacoes);
+  headerCache[TAB.designado] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    data: r.values['data'],
+    task_id: r.values['task_id'],
+    person_id: r.values['person_id'],
+    status: asAutoStatus(r.values['status']),
+  }))
+  .filter((r) => ((r.task_id ?? '').trim() !== ''))
 }
 
 // ===== Writers tipados =====
