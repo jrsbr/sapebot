@@ -7,7 +7,7 @@ import { nowIso, localDate } from './time';
 import {
   loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask, deleteTaskById
 } from './sheets';
-import { parseMessage } from './parser';
+import { Intent, parseMessage } from './parser';
 import {
   ResolveResult,
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
@@ -108,7 +108,7 @@ async function safeAppend(row: MessageRow): Promise<void> {
 
 function invalidHint(r: ResolveResult): string {
   if (r.invalidNumbers.length > 0) {
-    return `Os números ${r.invalidNumbers.join(', ')} não existem na lista de hoje.`;
+    return `Os números ou a descrição ${r.invalidNumbers.join(', ')} não existem na lista de hoje.`;
   }
   return '';
 }
@@ -159,7 +159,6 @@ async function handleOneMessage(
     const reply =
       'Olá! Este número não está cadastrado para receber lembretes de tarefas. Fale com o Pituxo para ser incluído.';
     const r = await sendText(phone, reply);
-    const unknownPerson = 
     await safeAppend(buildOutboundRow(phone, '', reply, 'unknown_number', '', r));
     return;
   }
@@ -195,69 +194,12 @@ async function handleOneMessage(
       break;
 
     case 'done': {
-      const r = resolveTargets(intent, pending);
-      if (r.emptyList) {
-        reply = `Você não tem tarefas pendentes hoje, ${person.nome}.`;
-        break;
-      }
-      if (r.ambiguous.length > 0) {
-        reply = [
-          'Encontrei mais de uma tarefa parecida. Qual delas?',
-          '',
-          formatTaskListMultiline(r.ambiguous),
-          '',
-          'Responda com o número (ex.: "feito 1").',
-        ].join('\n');
-        break;
-      }
-      if (r.targets.length === 0) {
-        reply = `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim();
-        break;
-      }
-      const stamp = nowIso();
-      for (const t of r.targets) {
-        markDone(t, stamp);
-        changed.push(t);
-      }
-      relatedKey = r.targets.map((t) => t.task_id).join(',');
-      const remaining = getPendingTasksForToday(tasks, person.person_id, today);
-      reply = buildDoneReply(person.nome, r, remaining);
+      ({ reply, relatedKey } = handleDone(intent, pending, person, today, changed, relatedKey, tasks));
       break;
     }
 
     case 'skip': {
-      const r = resolveTargets(intent, pending);
-      if (r.emptyList) {
-        reply = `Você não tem tarefas pendentes hoje, ${person.nome}.`;
-        break;
-      }
-      if (r.ambiguous.length > 0) {
-        reply = [
-          'Mais de uma tarefa parecida. Qual você quer pular?',
-          '',
-          formatTaskListMultiline(r.ambiguous),
-          '',
-          'Responda com o número (ex.: "pular 1").',
-        ].join('\n');
-        break;
-      }
-      if (r.targets.length === 0) {
-        reply = `Não encontrei essa tarefa para pular. ${invalidHint(r)} Envie "status" ou "ajuda".`.trim();
-        break;
-      }
-      for (const t of r.targets) {
-        markSkippedForToday(t, today);
-        changed.push(t);
-      }
-      relatedKey = r.targets.map((t) => t.task_id).join(',');
-      const remaining = getPendingTasksForToday(tasks, person.person_id, today);
-      const skippedDesc = r.targets.map((t) => `“${t.descricao}”`).join(', ');
-      reply = [
-        `Ok, pulei por hoje: ${skippedDesc}.`,
-        remaining.length
-          ? `Ainda faltam:\n${formatTaskListMultiline(remaining)}`
-          : 'Nada mais pendente por hoje.',
-      ].join('\n\n');
+      ({ reply, relatedKey } = handleSkip(intent, pending, person, today, changed, relatedKey, tasks));
       break;
     }
 
@@ -285,7 +227,7 @@ async function handleOneMessage(
       }
 
       if (sub === 'list') {
-        reply = await handleAdminList(tk, people, tasks);
+        reply = handleAdminList(tk, people, tasks);
         break;
       }
 
@@ -396,26 +338,108 @@ async function handleAdminRemove(
   }
 }
 
-async function handleAdminList(
+function handleAdminList(
   tokens: string[],
   people: Person[],
   tasks: Task[],
-): Promise<string>{
+): string{
+  let nameOf = '';
+  let idOf = '';
   const targetNameOrId = tokens[3] ?? '';
-  const nameOf = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
+  const { match, ambiguous } = findPersonByIdOrName(people, targetNameOrId);
+  const nameFromPid = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
+  if (targetNameOrId) {
+    if (ambiguous.length > 0) return 'Nome ambíguo. Tente digitar mais precisamente ou o pId.';
+    if (!match) return `person_id ou person_name "${targetNameOrId}" não encontrado.`;
+  nameOf = match.nome;
+  idOf = match.person_id;
+  }
   const aberta = (t: Task) => t.status !== 'done';
-  const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === targetNameOrId) : tasks)
+  const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === idOf) : tasks)
   .filter(aberta)
   .sort((a, b) =>
     a.person_id === b.person_id
       ? a.task_id.localeCompare(b.task_id)
       : a.person_id.localeCompare(b.person_id),
   );
-  let reply: string;
   if (sel.length === 0) {
-  return reply = targetNameOrId ? `Nenhuma tarefa em aberto para ${nameOf(targetNameOrId)}.` : 'Nenhuma tarefa em aberto.';
+  return targetNameOrId ? `Nenhuma tarefa em aberto para ${nameOf}.` : 'Nenhuma tarefa em aberto.';
   }
-  return reply = sel
-  .map((t) => `${t.task_id} [${nameOf(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
+  return sel.map((t) => `${t.task_id} [${nameFromPid(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
   .join('\n');
+}
+
+function handleDone(
+  intent: Extract<Intent, {type: 'done' | 'skip'}>,
+  pending: Task[],
+  person: Person,
+  today: string,
+  changed: Task[],
+  relatedKey: string,
+  tasks: Task[]
+): { reply: string, relatedKey: string } {
+  const r = resolveTargets(intent, pending);
+  if (r.emptyList) {
+  return { reply: `Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey };
+  }
+  if (r.ambiguous.length > 0) {
+    return {reply: [
+      'Encontrei mais de uma tarefa parecida. Qual delas?',
+      '',
+      formatTaskListMultiline(r.ambiguous),
+      '',
+      'Responda com o número (ex.: "feito 1").',
+    ].join('\n'), relatedKey};
+  }
+  if (r.targets.length === 0) {
+    return { reply: `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim(), relatedKey };
+  }
+  const stamp = nowIso();
+  for (const t of r.targets) {
+    markDone(t, stamp);
+    changed.push(t);
+  }
+  relatedKey = r.targets.map((t) => t.task_id).join(',');
+  const remaining = getPendingTasksForToday(tasks, person.person_id, today);
+  return { reply: buildDoneReply(person.nome, r, remaining), relatedKey };
+}
+
+function handleSkip(
+  intent: Extract<Intent, {type: 'done' | 'skip'}>,
+  pending: Task[],
+  person: Person,
+  today: string,
+  changed: Task[],
+  relatedKey: string,
+  tasks: Task[]
+): { reply: string, relatedKey: string}{
+  const r = resolveTargets(intent, pending);
+  if (r.emptyList) {
+    return { reply:`Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey};
+  }
+  if (r.ambiguous.length > 0) {
+    return {reply: [
+      'Mais de uma tarefa parecida. Qual você quer pular?',
+      '',
+      formatTaskListMultiline(r.ambiguous),
+      '',
+      'Responda com o número (ex.: "pular 1").',
+    ].join('\n'), relatedKey};
+  }
+  if (r.targets.length === 0) {
+    return {reply: `Não encontrei essa tarefa para pular. ${invalidHint(r)} Envie "status" ou "ajuda".`.trim(), relatedKey};
+  }
+  for (const t of r.targets) {
+    markSkippedForToday(t, today);
+    changed.push(t);
+  }
+  relatedKey = r.targets.map((t) => t.task_id).join(',');
+  const remaining = getPendingTasksForToday(tasks, person.person_id, today);
+  const skippedDesc = r.targets.map((t) => `“${t.descricao}”`).join(', ');
+  return {reply: [
+    `Ok, pulei por hoje: ${skippedDesc}.`,
+    remaining.length
+      ? `Ainda faltam:\n${formatTaskListMultiline(remaining)}`
+      : 'Nada mais pendente por hoje.',
+  ].join('\n\n'), relatedKey};
 }
