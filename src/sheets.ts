@@ -30,7 +30,7 @@ const AUTOTASK_HEADER = [
 ]
 
 const DESIGNATION_HEADER = [
-  'task_id', 'person_id', 'count', 'done',
+  'task_id', 'person_id', 'count',
 ]
 
 const DESIGNATED_HEADER = [
@@ -132,7 +132,6 @@ function designationToValues(d: Designation): Record<string, string> {
     task_id: d.task_id,
     person_id: d.person_id,
     count: String(d.count),
-    done: String(d.done),
   };
 }
 
@@ -297,7 +296,6 @@ export async function loadDesignation(): Promise<Designation[]> {
     task_id: r.values['task_id'] ?? '',
     person_id: r.values['person_id'] ?? '',
     count: parseInt(r.values['count'] ?? '0', 10),
-    done: parseInt(r.values['done'] ?? '0', 10),
   }))
   .filter((r) => ((r.task_id ?? '').trim() !== ''));
 }
