@@ -361,6 +361,32 @@ export async function appendMessages(
   });
 }
 
+export async function appendDesignated(d: Designated): Promise<void> {
+  const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
+  const client = getClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.designado}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [header.map((h) => designatedToValues(d)[h] ?? '')] },
+  });
+}
+
+export async function appendDesignateds(ds: Designated[]): Promise<void> {
+  if (ds.length === 0) return;
+  const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
+  const client = getClient();
+  const values = ds.map((d) => header.map((h) => designatedToValues(d)[h] ?? ''));
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.designado}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values },
+  });
+}
+
 export async function saveAutoTask(
   autoTask: AutoTask,
 ): Promise<void> {
