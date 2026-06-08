@@ -25,6 +25,18 @@ const MSG_HEADER = [
   'body', 'parsed_intent', 'related_task_id', 'status',
 ];
 
+const AUTOTASK_HEADER = [
+  'task_id', 'descricao',
+]
+
+const DESIGNATION_HEADER = [
+  'task_id', 'person_id', 'count', 'done',
+]
+
+const DESIGNATED_HEADER = [
+  'data', 'task_id', 'person_id', 'status',
+]
+
 let sheetsClient: sheets_v4.Sheets | null = null;
 const headerCache: Record<string, string[]> = {};
 
@@ -105,6 +117,31 @@ function msgToValues(m: MessageRow): Record<string, string> {
     parsed_intent: m.parsed_intent,
     related_task_id: m.related_task_id,
     status: m.status,
+  };
+}
+
+function autoTaskToValues(t: AutoTask): Record<string, string> {
+  return {
+    task_id: t.task_id,
+    descricao: t.descricao,
+  };
+}
+
+function designationToValues(d: Designation): Record<string, string> {
+  return  {
+    task_id: d.task_id,
+    person_id: d.person_id,
+    count: String(d.count),
+    done: String(d.done),
+  };
+}
+
+function designatedToValues(d: Designated): Record<string, string> {
+  return {
+    data: d.data,
+    task_id: d.task_id,
+    person_id: d.person_id,
+    status: d.status,
   };
 }
 
@@ -260,38 +297,45 @@ export async function loadDesignation(): Promise<Designation[]> {
     task_id: r.values['task_id'] ?? '',
     person_id: r.values['person_id'] ?? '',
     count: parseInt(r.values['count'] ?? '0', 10),
+    done: parseInt(r.values['done'] ?? '0', 10),
   }))
   .filter((r) => ((r.task_id ?? '').trim() !== ''));
 }
 
 export async function loadDesignated(): Promise<Designated[]> {
-  const { header, rows } = await loadTable(TAB.designacoes);
+  const { header, rows } = await loadTable(TAB.designado);
   headerCache[TAB.designado] = header;
   return rows.map((r) => ({
     __row: r.__row,
-    data: r.values['data'],
-    task_id: r.values['task_id'],
-    person_id: r.values['person_id'],
-    status: asAutoStatus(r.values['status']),
+    data: r.values['data'] ?? '',
+    task_id: r.values['task_id'] ?? '',
+    person_id: r.values['person_id'] ?? '',
+    status: asAutoStatus(r.values['status']) ?? '',
   }))
   .filter((r) => ((r.task_id ?? '').trim() !== ''))
 }
 
 // ===== Writers tipados =====
 
-export async function saveTask(task: Task): Promise<void> {
+export async function saveTask(
+  task: Task
+): Promise<void> {
   const header = ensureHeader(TAB.tarefas, TASK_HEADER);
   await writeRow(TAB.tarefas, header, task.__row, taskToValues(task));
 }
 
-export async function saveTasks(tasks: Task[]): Promise<void> {
+export async function saveTasks(
+  tasks: Task[]
+): Promise<void> {
   if (tasks.length === 0) return;
   const header = ensureHeader(TAB.tarefas, TASK_HEADER);
   const items = tasks.map((t) => ({ rowNumber: t.__row, values: taskToValues(t) }));
   await batchWriteRows(TAB.tarefas, header, items);
 }
 
-export async function appendMessage(msg: MessageRow): Promise<void> {
+export async function appendMessage(
+  msg: MessageRow
+): Promise<void> {
   const header = ensureHeader(TAB.mensagens, MSG_HEADER);
   const client = getClient();
   await client.spreadsheets.values.append({
@@ -303,7 +347,9 @@ export async function appendMessage(msg: MessageRow): Promise<void> {
   });
 }
 
-export async function appendMessages(msgs: MessageRow[]): Promise<void> {
+export async function appendMessages(
+  msgs: MessageRow[]
+): Promise<void> {
   if (msgs.length === 0) return;
   const header = ensureHeader(TAB.mensagens, MSG_HEADER);
   const client = getClient();
@@ -315,6 +361,27 @@ export async function appendMessages(msgs: MessageRow[]): Promise<void> {
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values },
   });
+}
+
+export async function saveAutoTask(
+  autoTask: AutoTask,
+): Promise<void> {
+  const header = ensureHeader(TAB.tarefasAuto, AUTOTASK_HEADER);
+  await writeRow(TAB.tarefasAuto, header, autoTask.__row, autoTaskToValues(autoTask));
+}
+
+export async function saveDesignation(
+  designation: Designation,
+): Promise<void> {
+  const header = ensureHeader(TAB.designacoes, DESIGNATION_HEADER);
+  await writeRow(TAB.designacoes, header, designation.__row, designationToValues(designation));
+}
+
+export async function saveDesignated(
+  designated: Designated,
+): Promise<void> {
+  const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
+  await writeRow(TAB.designacoes, header, designated.__row, designatedToValues(designated));
 }
 
 // ===== Suporte ao CSV (backup/edição offline) =====

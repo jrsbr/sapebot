@@ -12,7 +12,7 @@ import {
   ResolveResult,
   findPersonByPhone, getPendingTasksForToday, resolveTargets,
   markDone, markSkippedForToday, dedupeByRow,
-  brPhoneKey, onlyDigits, findTaskByDescription,
+  brPhoneKey, findTaskByDescription,
   findPersonByIdOrName
 } from './tasks';
 import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow
