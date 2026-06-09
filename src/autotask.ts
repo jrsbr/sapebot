@@ -1,3 +1,6 @@
+import { date } from "zod";
+import { addDays } from "./time";
+import { logger } from "./logger";
 import type { Person, AutoTask, Designated, Designation } from "./types";
 
 function isDesignatedThisDay (
@@ -18,9 +21,9 @@ export function expiredPendingDesignated (
 export function countInWindow (
     designateds: Designated[],
     person_id: string,
-    corte: string,
+    cut: string,
 ): { done: number, missed: number, pending: number } {
-    const personTasks = designateds.filter((d) => d.person_id === person_id && d.data >= corte);
+    const personTasks = designateds.filter((d) => d.person_id === person_id && d.data >= cut);
     const done = personTasks.filter((p) => p.status === 'done').length;
     const missed = personTasks.filter((p) => p.status === 'missed').length;
     const pending = personTasks.filter((p) => p.status === 'pending').length;
@@ -40,42 +43,35 @@ export function countDoneByTaskPerson (
     designateds: Designated[],
     person_id: string,
     task_id: string,
-    corte: string,
+    cut: string,
 ): number {
     const total = designateds.filter((d) => 
         d.person_id === person_id &&
         d.task_id === task_id &&
         d.status === 'done' &&
-        d.data >= corte
+        d.data >= cut
         ).length;
     return total;
 }
 
 export function selectDayAssignments(
-  pool: Person[],            // já filtrado: ativo, opt_in, !ferias
-  autoTasks: AutoTask[],     // os 2 task_ids
-  designated: Designated[],  // estado atual (inclui o já gerado nesta rodada)
-  data: string,              // o dia (YYYY-MM-DD)
-  corte: string,             // piso da janela
+  pool: Person[],           
+  autoTasks: AutoTask[], 
+  designated: Designated[], 
+  data: string,    
+  cut: string,        
 ): Designated[] {
-  // 0. Fallback: pool < 2 → retorna [] (não gera nada)
   if (pool.length < 2) return [];
-
-  // 1. Montar métricas de cada pessoa: { person, done, taxa }
-  //    usando countInWindow (peça 2) e successRate (peça 3)
   let metrics = pool.map((p) => {
-    const { done, missed, pending } = countInWindow(designated, p.person_id,corte);
+    const { done, missed, pending } = countInWindow(designated, p.person_id,cut);
     return { person_id: p.person_id, done, rate: successRate(done, missed, pending) };
     })
 
-  // 2. Escolher A: menor done → menor taxa → nome (alfabético)
-  //    ordenar uma cópia das métricas por esse comparador em cascata, pegar [0]
   const A = metrics.sort((a, b) => 
     a.done - b.done ||
     a.rate - b.rate ||
     a.person_id.localeCompare(b.person_id))[0];
 
-  // 3. Escolher B: entre os restantes (sem A), pior taxa → menor done → nome
   const rateSorted = metrics.sort((a, b) => 
     a.rate - b.rate ||
     a.done - b.done ||
@@ -83,19 +79,17 @@ export function selectDayAssignments(
   let B = rateSorted[0];
   if (B.person_id === A.person_id) B = rateSorted[1];
 
-  // 4. A escolhe a tarefa: countDoneByTaskPerson (peça 4) de cada task pra A
-  //    menor vence; empate → a que B fez mais; duplo empate → task_id alfabético
   const t1 = autoTasks[0].task_id;
   const t2 = autoTasks[1].task_id;
   const decideTask = (
     firstPerson: string,
     secondPerson: string,
   ): string => {
-    const aTask1 = countDoneByTaskPerson(designated, firstPerson, t1, corte);
-    const aTask2 = countDoneByTaskPerson(designated, firstPerson, t2, corte);
+    const aTask1 = countDoneByTaskPerson(designated, firstPerson, t1, cut);
+    const aTask2 = countDoneByTaskPerson(designated, firstPerson, t2, cut);
     if (aTask1 === aTask2) {
-        const bTask1 = countDoneByTaskPerson(designated, secondPerson, t1, corte);
-        const bTask2 = countDoneByTaskPerson(designated, secondPerson, t2, corte);
+        const bTask1 = countDoneByTaskPerson(designated, secondPerson, t1, cut);
+        const bTask2 = countDoneByTaskPerson(designated, secondPerson, t2, cut);
         if (bTask1 === bTask2) return t1 < t2 ? t1 : t2;
         return bTask1 > bTask2 ? t1 : t2;
     }
@@ -103,11 +97,7 @@ export function selectDayAssignments(
   };
 
   const finalATask = decideTask(A.person_id, B.person_id);
-
-  // 5. B pega a outra tarefa
   const finalBTask = finalATask === t1 ? t2 : t1;
-
-  // 6. Montar e retornar os 2 Designated { data, task_id, person_id, status:'pending', __row }
   const autoTaskA: Designated = {
     data,
     task_id: finalATask,
@@ -123,4 +113,36 @@ export function selectDayAssignments(
   };
 
   return [autoTaskA, autoTaskB];
+}
+
+export function fullWeekAssignments(
+  pool: Person[],           
+  autoTasks: AutoTask[], 
+  designated: Designated[], 
+  data: string,    
+  cut: string,   
+): { newDesignated: Designated[], partialDays: string[] }{
+    const working = [...designated];
+    const newDesignated: Designated[] = [];
+    const tasksId = autoTasks.map((a) => a.task_id);
+    let partialDays: string[] = [];
+    const tasksFromDay = (
+        day: string,
+    ): string[] => {
+        return working.filter((d) => d.data === day).map((d) => d.task_id);
+    }
+    for (let i = 0 ; i < 7 ; i ++) {
+        const futureDate = addDays(data, i);
+        const dayTasksId = tasksFromDay(futureDate);
+        const missingTasks = tasksId.filter((t) => !dayTasksId.includes(t));
+        if (missingTasks.length === 0) continue;
+        if (missingTasks.length < tasksId.length) {
+            partialDays.push(futureDate);
+            continue;
+        }
+        const dayDesignated = selectDayAssignments(pool, autoTasks, working, futureDate, cut);
+        working.push(...dayDesignated);
+        newDesignated.push(...dayDesignated);
+    }
+    return { newDesignated, partialDays };
 }
