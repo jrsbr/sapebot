@@ -225,6 +225,7 @@ export async function loadPeople(): Promise<Person[]> {
       opt_in: toBool(r.values['opt_in']),
       timezone: (r.values['timezone'] ?? '').trim(),
       observacoes: r.values['observacoes'] ?? '',
+      ferias: toBool(r.values['ferias']),
     }));
 }
 
