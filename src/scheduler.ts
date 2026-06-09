@@ -2,10 +2,12 @@
 import cron from 'node-cron';
 import { env } from './config';
 import { logger } from './logger';
-import { nowIso, localDate, logicalDate } from './time';
+import { nowIso, localDate, logicalDate, addDays } from './time';
 import {
   loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, dumpTab,
-  loadDesignated, saveDesignated, TAB, overwriteTab
+  loadDesignated, saveDesignated, TAB, overwriteTab,
+  loadAutoTasks,
+  appendDesignateds
 } from './sheets';
 import {
   getPendingTasksForToday, rolloverRecurringTasks,
@@ -14,7 +16,7 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h } from './messaging';
 import type { Person, Task, MessageRow, SendResult } from './types'
-import { expiredPendingDesignated } from './autotask';
+import { expiredPendingDesignated, fullWeekAssignments } from './autotask';
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
   const v = cfg[key];
@@ -211,6 +213,35 @@ export async function runMissedDesignated(): Promise<{ succ: number, fail: numbe
   return { succ, fail, lastError };
 }
 
+export async function runWeekGeneration(): Promise<{ generated: number, partial: number }> {
+  const [ designated, people, autoTask ] = await Promise.all([
+    loadDesignated(),
+    loadPeople(),
+    loadAutoTasks(),
+  ]);
+  const pool = people.filter((p) => p.ativo === true && p.opt_in === true && p.ferias === false);
+  const today = logicalDate(env.DEFAULT_TIMEZONE);
+  const cut = addDays(today, -60);
+  const { newDesignated, partialDays } = fullWeekAssignments(pool, autoTask, designated, today, cut);
+  let appendWork = false;
+  
+  if (newDesignated.length > 0) {
+    try {
+      await appendDesignateds(newDesignated);
+      appendWork = true;
+    }
+    catch (err) {
+      logger.error('Ocorreu um erro ao adicionar as novas tarefas automática.', { error: (err as Error).message});
+      appendWork = false;
+    }
+  }
+
+  if (partialDays.length > 0) {
+    logger.warn(`Dias parcialmente preenchidos (pulados): ${partialDays.join(', ')}. Preencher manualmente.`);
+  }
+
+  return { generated: appendWork ? newDesignated.length : 0, partial: partialDays.length };
+}
 
 export function startScheduler(): void {
   const schedule = (hour: number, minute: number, slot: string) => {
