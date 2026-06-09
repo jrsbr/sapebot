@@ -147,12 +147,17 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
 }
 
 export async function runMissedDesignated(): Promise<void> {
-  const designated = await loadDesignated();
-  const logicDay = logicalDate(env.DEFAULT_TIMEZONE);
-  const newMissed = expiredPendingDesignated(designated, logicDay);
-  for (const d of newMissed) {
-    d.status = 'missed';
-    await saveDesignated(d);
+  try {
+    const designated = await loadDesignated();
+    const logicDay = logicalDate(env.DEFAULT_TIMEZONE);
+    const newMissed = expiredPendingDesignated(designated, logicDay);
+    for (const d of newMissed) {
+      d.status = 'missed';
+      await saveDesignated(d);
+    }
+    logger.info(`Designações marcadas como missed: ${newMissed.length}`);
+  } catch (err) {
+    logger.error('Falha ao fechar designações pendentes', { error: (err as Error).message });
   }
 }
 
