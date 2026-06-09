@@ -1,15 +1,5 @@
-import { date } from "zod";
 import { addDays } from "./time";
-import { logger } from "./logger";
-import type { Person, AutoTask, Designated, Designation } from "./types";
-
-function isDesignatedThisDay (
-    designateds: Designated[],
-    task_id: string,
-    date: string,
-): boolean {
-    return designateds.some((d) => (date === d.data && task_id === d.task_id));
-}
+import type { Person, AutoTask, Designated } from "./types";
 
 export function expiredPendingDesignated (
     designateds: Designated[],
