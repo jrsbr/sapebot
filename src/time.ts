@@ -42,3 +42,12 @@ export function logicalDate(
   const shifted = new Date(date.getTime() - shift * 60 * 60 * 1000);
   return localDate(tz, shifted);
 }
+
+export function addDays(
+  ymd: string, 
+  days: number,
+): string {
+  const d = new Date(`${ymd}T12:00:00Z`);     
+  d.setUTCDate(d.getUTCDate() + days);      
+  return d.toISOString().slice(0, 10);   
+}
