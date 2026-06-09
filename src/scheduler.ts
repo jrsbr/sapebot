@@ -189,19 +189,26 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   logger.info(`Rotina concluída. Enviados=${sent} Pulados=${skipped} Erros=${errors}`);
 }
 
-export async function runMissedDesignated(): Promise<void> {
-  try {
-    const designated = await loadDesignated();
-    const logicDay = logicalDate(env.DEFAULT_TIMEZONE);
-    const newMissed = expiredPendingDesignated(designated, logicDay);
-    for (const d of newMissed) {
-      d.status = 'missed';
+export async function runMissedDesignated(): Promise<{ succ: number, fail: number, lastError?: Error}> {
+  const designated = await loadDesignated();
+  const logicDay = logicalDate(env.DEFAULT_TIMEZONE);
+  const newMissed = expiredPendingDesignated(designated, logicDay);
+  let succ = 0;
+  let fail = 0;
+  let lastError: Error | undefined;
+  for (const d of newMissed) {
+    d.status = 'missed';
+    try {
       await saveDesignated(d);
+      succ ++;
     }
-    logger.info(`Designações marcadas como missed: ${newMissed.length}`);
-  } catch (err) {
-    logger.error('Falha ao fechar designações pendentes', { error: (err as Error).message });
+    catch (e){
+      fail ++;
+      lastError = e as Error;
+    }
   }
+  if (fail === 0) return { succ, fail };
+  return { succ, fail, lastError };
 }
 
 
@@ -253,9 +260,24 @@ export function startScheduler(): void {
     },
     { timezone: env.DEFAULT_TIMEZONE },
   );
+
+  cron.schedule(
+    '0 3 * * *',
+    async () => {
+      try {
+        const { succ, fail, lastError } = await runMissedDesignated();
+        if (fail === 0) logger.info(`Tarefas automáticas marcadas como 'missed': ${succ} marcadas.`);
+        else logger.error(`Ocorreu um erro ao marcar as tarefas automáticas como 'missed': ${succ} foram corretamente marcadas enquanto ${fail} apresentaram erros. Último erro detectado:${lastError?.message}`)
+      }
+      catch (err) {
+        logger.error(`Ocorreu um erro ao carregar os designados: ${ (err as Error).message }`)
+      }
+    },
+    { timezone: env.DEFAULT_TIMEZONE},
+  );
 }
 
-// Permite rodar manualmente: `npm run send:now`
+// Permite rodar manualmente: npm run send:now
 if (require.main === module) {
   runDailyReminders()
     .then(() => process.exit(0))
