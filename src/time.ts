@@ -37,7 +37,7 @@ export function sleep(ms: number): Promise<void> {
 export function logicalDate(
   tz: string,
   date: Date = new Date(),
-  shift: 3,
+  shift = 3,
 ): string {
   const shifted = new Date(date.getTime() - shift * 60 * 60 * 1000);
   return localDate(tz, shifted);

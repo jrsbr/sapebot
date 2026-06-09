@@ -2,9 +2,11 @@
 import cron from 'node-cron';
 import { env } from './config';
 import { logger } from './logger';
-import { nowIso, localDate } from './time';
+import { nowIso, localDate, logicalDate } from './time';
 import {
-  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages, purgeOldDoneOnceTasks
+  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages, purgeOldDoneOnceTasks,
+  loadDesignated,
+  saveDesignated
 } from './sheets';
 import {
   getPendingTasksForToday, rolloverRecurringTasks,
@@ -13,6 +15,7 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h } from './messaging';
 import type { Person, Task, MessageRow, SendResult } from './types'
+import { expiredPendingDesignated } from './autotask';
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
   const v = cfg[key];
@@ -142,6 +145,17 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
 
   logger.info(`Rotina concluída. Enviados=${sent} Pulados=${skipped} Erros=${errors}`);
 }
+
+export async function runMissedDesignated(): Promise<void> {
+  const designated = await loadDesignated();
+  const logicDay = logicalDate(env.DEFAULT_TIMEZONE);
+  const newMissed = expiredPendingDesignated(designated, logicDay);
+  for (const d of newMissed) {
+    d.status = 'missed';
+    await saveDesignated(d);
+  }
+}
+
 
 export function startScheduler(): void {
   const schedule = (hour: number, minute: number, slot: string) => {
