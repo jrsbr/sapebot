@@ -76,7 +76,7 @@ export interface Designation {
 }
 
 export interface Designated {
-  __row: number;
+  __row?: number;
   data: string;
   task_id: string;
   person_id: string;

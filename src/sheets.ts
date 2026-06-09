@@ -401,11 +401,12 @@ export async function saveDesignation(
   await writeRow(TAB.designacoes, header, designation.__row, designationToValues(designation));
 }
 
-export async function saveDesignated(
-  designated: Designated,
-): Promise<void> {
+export async function saveDesignated(d: Designated): Promise<void> {
+  if (d.__row === undefined) {
+    throw new Error('saveDesignated requer __row (designação já persistida)');
+  }
   const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
-  await writeRow(TAB.designacoes, header, designated.__row, designatedToValues(designated));
+  await writeRow(TAB.designado, header, d.__row, designatedToValues(d));
 }
 
 // ===== Suporte ao CSV (backup/edição offline) =====
