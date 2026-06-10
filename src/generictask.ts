@@ -130,15 +130,3 @@ export function findTaskByDescription(
   const top = scored.filter((s) => s.score === scored[0].score).map((s) => s.task);
   return { ambiguous: top };
 }
-
-export function getPendingAutoForToday(
-    designated: Designated[],
-    person_id: string,
-    logicalToday: string,
-): Designated[] {
-    return designated.filter((d) =>
-        person_id === d.person_id &&
-        logicalToday === d.data &&
-        d.status === 'pending'
-    );
-}

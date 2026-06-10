@@ -136,3 +136,15 @@ export function fullWeekAssignments(
     }
     return { newDesignated, partialDays };
 }
+
+export function getPendingAutoForToday(
+    designated: Designated[],
+    person_id: string,
+    logicalToday: string,
+): Designated[] {
+    return designated.filter((d) =>
+        person_id === d.person_id &&
+        logicalToday === d.data &&
+        d.status === 'pending'
+    );
+}
