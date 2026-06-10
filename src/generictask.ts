@@ -1,4 +1,4 @@
-import type { GenericTask, Task, AutoTask } from "./types";
+import type { GenericTask, Task, AutoTask, Designated } from "./types";
 
 export function sortGenericTask(
     tasks: GenericTask[],
@@ -20,6 +20,22 @@ export function taskToGeneric(
         person_id: task.person_id,
         kind: 'normal',
         status: task.status
+    };
+    return generic;
+}
+
+export function designatedToGeneric(
+    designated: Designated,
+    autoTask: AutoTask[],
+): GenericTask {
+    const desc = autoTask.find((a) => a.task_id === designated.task_id)?.descricao ?? '';
+    const generic: GenericTask = {
+        task_id: designated.task_id,
+        descricao: desc,
+        data: designated.data,
+        person_id: designated.person_id,
+        kind: 'auto',
+        status: designated.status
     };
     return generic;
 }
