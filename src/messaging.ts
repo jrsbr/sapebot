@@ -1,18 +1,18 @@
-import type { Task, Person, MessageRow, SendResult, IncomingMessage } from './types';
+import type { Task, Person, MessageRow, SendResult, IncomingMessage, GenericTask } from './types';
 import { nowIso } from './time';
 
 // ===== Formatação de mensagens =====
 
-export function formatTaskListMultiline(tasks: Task[]): string {
+export function formatTaskListMultiline(tasks: GenericTask[]): string {
   return tasks.map((t, i) => `${i + 1}. ${t.descricao}`).join('\n');
 }
 
 // Sem quebras de linha: exigência dos parâmetros de template do WhatsApp.
-export function formatTaskListSingleLine(tasks: Task[]): string {
+export function formatTaskListSingleLine(tasks: GenericTask[]): string {
   return tasks.map((t, i) => `${i + 1}) ${t.descricao}`).join(' | ');
 }
 
-export function formatReminderText(nome: string, tasks: Task[]): string {
+export function formatReminderText(nome: string, tasks: GenericTask[]): string {
   return [
     `Oi, ${nome}. Suas tarefas de hoje são:`,
     '',
@@ -30,7 +30,7 @@ export function formatNoTasksText(nome: string): string {
   return `Oi, ${nome}. Você não tem tarefas pendentes hoje. 🎉`;
 }
 
-export function formatStatusText(nome: string, pending: Task[]): string {
+export function formatStatusText(nome: string, pending: GenericTask[]): string {
   if (pending.length === 0) {
     return `Tudo certo, ${nome}! Você não tem tarefas pendentes hoje. 🎉`;
   }
