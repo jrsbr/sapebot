@@ -253,21 +253,3 @@ export function dedupeByRow(tasks: Task[]): Task[] {
 export function reminderTaskKey(tasks: Task[]): string {
   return tasks.map((t) => t.task_id).sort().join(',');
 }
-
-export function alreadyRemindedToday(
-  messages: MessageRow[],
-  personId: string,
-  todayLocal: string,
-  taskKey: string,
-  tz: string,
-): boolean {
-  return messages.some(
-    (m) =>
-      m.direction === 'outbound' &&
-      m.person_id === personId &&
-      m.parsed_intent === 'reminder' &&
-      m.related_task_id === taskKey &&
-      isoToLocalDate(m.timestamp, tz) === todayLocal,
-  );
-}
-

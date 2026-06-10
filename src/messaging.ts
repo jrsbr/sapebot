@@ -1,5 +1,5 @@
-import type { Task, Person, MessageRow, SendResult, IncomingMessage, GenericTask } from './types';
-import { nowIso } from './time';
+import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask } from './types';
+import { nowIso, isoToLocalDate } from './time';
 
 // ===== Formatação de mensagens =====
 
@@ -97,4 +97,21 @@ export function within24h(messages: MessageRow[], personId: string): boolean {
   const t = Date.parse(last);
   if (Number.isNaN(t)) return false;
   return Date.now() - t < 24 * 60 * 60 * 1000;
+}
+
+export function alreadyRemindedToday(
+  messages: MessageRow[],
+  personId: string,
+  todayLocal: string,
+  taskKey: string,
+  tz: string,
+): boolean {
+  return messages.some(
+    (m) =>
+      m.direction === 'outbound' &&
+      m.person_id === personId &&
+      m.parsed_intent === 'reminder' &&
+      m.related_task_id === taskKey &&
+      isoToLocalDate(m.timestamp, tz) === todayLocal,
+  );
 }

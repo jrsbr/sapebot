@@ -10,13 +10,13 @@ import {
   appendDesignateds
 } from './sheets';
 import {
-  getPendingTasksForToday, rolloverRecurringTasks,
-  reminderTaskKey, alreadyRemindedToday, dedupeByRow
+  getPendingTasksForToday, rolloverRecurringTasks,dedupeByRow
 } from './tasks';
 import { sendText, sendTemplate } from './whatsapp';
-import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h } from './messaging';
-import type { Person, Task, MessageRow, SendResult } from './types'
+import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
+import type { Person, Task, MessageRow, SendResult, AutoTask, Designated } from './types'
 import { expiredPendingDesignated, fullWeekAssignments } from './autotask';
+import { buildCombinedList, genericTaskKey } from './generictask';
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
   const v = cfg[key];
@@ -76,9 +76,11 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   let tasks: Task[];
   let cfg: Record<string, string>;
   let messages: MessageRow[];
+  let autoTasks: AutoTask[];
+  let designated: Designated[];
   try {
-    [people, tasks, cfg, messages] = await Promise.all([
-      loadPeople(), loadTasks(), loadConfig(), loadMessages(),
+    [people, tasks, cfg, messages, autoTasks, designated] = await Promise.all([
+      loadPeople(), loadTasks(), loadConfig(), loadMessages(), loadAutoTasks(), loadDesignated()
     ]);
   } catch (err) {
     logger.error('Não foi possível carregar dados da planilha. Abortando rotina.', {
@@ -112,15 +114,22 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   let sent = 0;
   let skipped = 0;
   let errors = 0;
+  const logicalToday = logicalDate(env.DEFAULT_TIMEZONE);
 
   for (const person of people) {
     if (!person.ativo || !person.opt_in) continue;
     const tz = person.timezone || env.DEFAULT_TIMEZONE;
     const today = localDate(tz);
     const pending = getPendingTasksForToday(tasks, person.person_id, today);
+    const autoPending = designated.filter((d) =>
+      d.person_id === person.person_id && 
+      d.data === logicalToday &&
+      d.status === 'pending'
+    );
+    const combined = buildCombinedList(pending, autoPending, autoTasks);
 
     // 4) Sem tarefas: só envia se configurado.
-    if (pending.length === 0) {
+    if (combined.length === 0) {
       if (!sendNoTask || slot !== 'manha') continue;
       const key = `${slot}:no-tasks`;
       if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
@@ -138,7 +147,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     }
 
     // 5) Idempotência: mesma lista no mesmo dia não reenvia.
-    const key = `${slot}:${reminderTaskKey(pending)}`;
+    const key = `${slot}:${genericTaskKey(combined)}`;
     if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
       logger.info(`Lembrete já enviado hoje para ${person.person_id}, pulando.`);
       skipped++;
@@ -149,10 +158,10 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     let result: SendResult;
     let bodyForLog: string;
     if (within24h(messages, person.person_id)) {
-      bodyForLog = formatReminderText(person.nome, pending);
+      bodyForLog = formatReminderText(person.nome, combined);
       result = await sendText(person.whatsapp_e164, bodyForLog);
     } else {
-      const list = formatTaskListSingleLine(pending);
+      const list = formatTaskListSingleLine(combined);
       bodyForLog = `[template:${env.WHATSAPP_TEMPLATE_TASKS}] nome=${person.nome} tarefas=${list}`;
       result = await sendTemplate(person.whatsapp_e164, env.WHATSAPP_TEMPLATE_TASKS, [
         { type: 'text', text: person.nome },

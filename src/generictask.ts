@@ -1,4 +1,3 @@
-import { log } from "console";
 import type { GenericTask, Task, AutoTask, Designated } from "./types";
 
 export function sortGenericTask(
