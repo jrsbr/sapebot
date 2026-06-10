@@ -1,12 +1,4 @@
-// Interpretação das respostas dos usuários. Função pura (sem I/O), fácil de testar.
-
-export type Intent =
-  | { type: 'done'; indices?: number[]; query?: string }
-  | { type: 'skip'; indices?: number[]; query?: string }
-  | { type: 'status' }
-  | { type: 'help' }
-  | { type: 'unknown'; raw: string }
-  | { type: 'admin'; raw: string };
+import type { Intent } from "./types";
 
 // Normaliza texto: minúsculas, sem acentos, espaços colapsados.
 export function normalizeText(s: string): string {

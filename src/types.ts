@@ -94,3 +94,11 @@ export interface GenericTaskBase {
 export type GenericTask =
 | (GenericTaskBase & { kind: 'normal'; status: TaskStatus })
 | (GenericTaskBase & { kind: 'auto'; status: AutoTaskStatus });
+
+export type Intent =
+  | { type: 'done'; indices?: number[]; query?: string }
+  | { type: 'skip'; indices?: number[]; query?: string }
+  | { type: 'status' }
+  | { type: 'help' }
+  | { type: 'unknown'; raw: string }
+  | { type: 'admin'; raw: string };
