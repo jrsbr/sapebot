@@ -50,3 +50,10 @@ export function buildCombinedList(
     const autoToGnr = designated.map((d) => designatedToGeneric(d, autoTasks));
     return sortGenericTask([...normalToGnr,...autoToGnr]);
 }
+
+export function genericTaskKey (
+    genTask: GenericTask[],
+): string {
+    const sortedIds = genTask.map((g) => g.task_id).sort((a, b) => a.localeCompare(b));
+    return sortedIds.join(',')
+}
