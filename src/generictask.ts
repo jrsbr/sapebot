@@ -1,3 +1,4 @@
+import { log } from "console";
 import type { GenericTask, Task, AutoTask, Designated } from "./types";
 
 export function sortGenericTask(
@@ -38,4 +39,14 @@ export function designatedToGeneric(
         status: designated.status
     };
     return generic;
+}
+
+export function buildCombinedList(
+    tasks: Task[], // already filtered
+    designated: Designated[], // already filtered
+    autoTasks: AutoTask[], 
+): GenericTask[] {
+    const normalToGnr = tasks.map((t) => taskToGeneric(t));
+    const autoToGnr = designated.map((d) => designatedToGeneric(d, autoTasks));
+    return sortGenericTask([...normalToGnr,...autoToGnr]);
 }
