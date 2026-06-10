@@ -9,3 +9,17 @@ export function sortGenericTask(
     }
     );
 }
+
+export function taskToGeneric(
+    task: Task,
+): GenericTask {
+    const generic: GenericTask = {
+        task_id: task.task_id,
+        descricao: task.descricao,
+        data: task.data,
+        person_id: task.person_id,
+        kind: 'normal',
+        status: task.status
+    };
+    return generic;
+}
