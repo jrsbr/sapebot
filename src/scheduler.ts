@@ -213,7 +213,7 @@ export async function runMissedDesignated(): Promise<{ succ: number, fail: numbe
   return { succ, fail, lastError };
 }
 
-export async function runWeekGeneration(): Promise<{ generated: number, partial: number }> {
+export async function runWeekGeneration(): Promise<{ generated: number, partial: string[] }> {
   const [ designated, people, autoTask ] = await Promise.all([
     loadDesignated(),
     loadPeople(),
@@ -240,7 +240,7 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
     logger.warn(`Dias parcialmente preenchidos (pulados): ${partialDays.join(', ')}. Preencher manualmente.`);
   }
 
-  return { generated: appendWork ? newDesignated.length : 0, partial: partialDays.length };
+  return { generated: appendWork ? newDesignated.length : 0, partial: partialDays };
 }
 
 export function startScheduler(): void {
@@ -302,6 +302,13 @@ export function startScheduler(): void {
       }
       catch (err) {
         logger.error(`Ocorreu um erro ao carregar os designados: ${ (err as Error).message }`)
+      }
+      try {
+        const { generated, partial } = await runWeekGeneration();
+        logger.info(`Geração de tarefas automáticas: ${generated} criadas.`);
+      }
+      catch (err) {
+          logger.error('Erro ao carregar a planilha na geração de tarefas automáticas.', { error: (err as Error).message});
       }
     },
     { timezone: env.DEFAULT_TIMEZONE},
