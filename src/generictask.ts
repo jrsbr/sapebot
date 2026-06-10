@@ -14,6 +14,7 @@ export function taskToGeneric(
     task: Task,
 ): GenericTask {
     const generic: GenericTask = {
+        __row: task.__row,
         task_id: task.task_id,
         descricao: task.descricao,
         data: task.data,
@@ -30,6 +31,7 @@ export function designatedToGeneric(
 ): GenericTask {
     const desc = autoTask.find((a) => a.task_id === designated.task_id)?.descricao ?? '';
     const generic: GenericTask = {
+        __row: designated.__row,
         task_id: designated.task_id,
         descricao: desc,
         data: designated.data,
