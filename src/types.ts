@@ -85,6 +85,7 @@ export interface Designated {
 }
 
 export interface GenericTaskBase {
+  __row?: number,
   task_id: string;
   descricao: string;
   data: string;
