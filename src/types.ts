@@ -102,3 +102,11 @@ export type Intent =
   | { type: 'help' }
   | { type: 'unknown'; raw: string }
   | { type: 'admin'; raw: string };
+
+export interface ResolveResult {
+  targets: GenericTask[];
+  invalidNumbers: number[];
+  ambiguous: GenericTask[];
+  markedAll: boolean;
+  emptyList: boolean;
+}
