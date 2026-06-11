@@ -313,7 +313,7 @@ export function startScheduler(): void {
         logger.error(`Ocorreu um erro ao carregar os designados: ${ (err as Error).message }`)
       }
       try {
-        const { generated, partial } = await runWeekGeneration();
+        const { generated } = await runWeekGeneration();
         logger.info(`Geração de tarefas automáticas: ${generated} criadas.`);
       }
       catch (err) {
