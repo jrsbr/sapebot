@@ -215,6 +215,11 @@ async function handleOneMessage(
       break;
     }
 
+    case 'ferias_on': {
+      reply = handleFerias(person);
+      break;
+    }
+
     case 'admin': {
       const admins = env.ADMIN_PHONES.split(',').map((s) => brPhoneKey(s)).filter(Boolean);
       if (!admins.includes(brPhoneKey(phone))) {
@@ -499,4 +504,11 @@ function handleSkip(
   parts.push(combined.length ? `Ainda faltam:\n${formatTaskListMultiline(combined)}` : 'Nada mais pendente por hoje.');
 
   return { reply: parts.join('\n\n'), relatedKey };
+}
+
+function handleFerias(
+  person: Person
+): string {
+  if (person.ferias === true) return `Você já está de férias. Para sair de férias digite "voltar".`;
+  return 'Para confirmar a entrada de férias, digite "confirmar ferias". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje entrar de férias, basta ignorar essa mensagem.';
 }
