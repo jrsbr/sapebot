@@ -219,6 +219,11 @@ async function handleOneMessage(
       reply = handleFerias(person);
       break;
     }
+    
+    case 'ferias_off': {
+      reply = handleFeriasOff(person);
+      break;
+    }
 
     case 'admin': {
       const admins = env.ADMIN_PHONES.split(',').map((s) => brPhoneKey(s)).filter(Boolean);
@@ -511,4 +516,11 @@ function handleFerias(
 ): string {
   if (person.ferias === true) return `Você já está de férias. Para sair de férias digite "voltar".`;
   return 'Para confirmar a entrada de férias, digite "confirmar ferias". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje entrar de férias, basta ignorar essa mensagem.';
+}
+
+function handleFeriasOff(
+  person: Person
+): string {
+  if (person.ferias === true) return `Você não está de férias. Para entrar de férias digite "ferias".`;
+  return 'Para confirmar o término de suas férias, digite "confirmar voltar". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje voltar de férias, basta ignorar essa mensagem.';
 }
