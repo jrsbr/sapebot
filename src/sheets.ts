@@ -495,3 +495,46 @@ export async function deleteTaskById(taskId: string): Promise<boolean> {
   await overwriteTab(TAB.tarefas, [header, ...kept]);
   return true;
 }
+
+// Nova forma de deletar atômico que evita perda de dados
+const sheetIdCache: Record<string, number> = {};
+
+async function getSheetId(tab: string): Promise<number> {
+  if (sheetIdCache[tab] !== undefined) return sheetIdCache[tab];
+  const client = getClient();
+  const res = await client.spreadsheets.get({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    fields: 'sheets.properties', // sem isso a resposta traria a planilha inteira
+  });
+  for (const s of res.data.sheets ?? []) {
+    const p = s.properties;
+    if (p?.title && p.sheetId != null) sheetIdCache[p.title] = p.sheetId;
+  }
+  const id = sheetIdCache[tab];
+  if (id === undefined) throw new Error(`Aba "${tab}" não encontrada na planilha`);
+  return id;
+}
+
+export async function deleteRows(tab: string, rowNumbers: number[]): Promise<void> {
+  if (rowNumbers.length === 0) return;
+  if (rowNumbers.some((r) => r <= 1)) {
+    throw new Error(`deleteRows: linha inválida (${rowNumbers}); a linha 1 é o header`);
+  }
+  const sheetId = await getSheetId(tab);
+  const rows = [...new Set(rowNumbers)].sort((a, b) => b - a);
+  const requests = rows.map((row) => ({
+    deleteDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: row - 1,
+        endIndex: row,
+      },
+    },
+  }));
+  const client = getClient();
+  await client.spreadsheets.batchUpdate({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    requestBody: { requests },
+  });
+}
