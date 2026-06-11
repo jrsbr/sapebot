@@ -1,3 +1,4 @@
+import { unknown } from "zod";
 import type { Intent } from "./types";
 
 // Normaliza texto: minúsculas, sem acentos, espaços colapsados.
@@ -33,7 +34,20 @@ export function parseMessage(text: string): Intent {
   if (STATUS_WORDS.includes(first)) return { type: 'status' };
   if (DONE_WORDS.includes(first)) return buildActionIntent('done', rest);
   if (SKIP_WORDS.includes(first)) return buildActionIntent('skip', rest);
+  if (first === 'ferias') {
+    if (rest === '') return { type: 'ferias_on' };
 
+  }
+  if (first === 'voltar') {
+    if (rest === '') return { type: 'ferias_off' };
+    return { type: 'unknown', raw };
+  }
+  if (first === 'confirmar') {
+    if (rest === 'ferias') return { type: 'ferias_on_confirm' };
+    if (rest === 'voltar') return { type: 'ferias_off_confirm' };
+    return { type: 'unknown', raw };
+  }
+  
   return { type: 'unknown', raw };
 }
 
