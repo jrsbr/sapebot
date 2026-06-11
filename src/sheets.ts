@@ -309,7 +309,7 @@ export async function loadDesignated(): Promise<Designated[]> {
     data: r.values['data'] ?? '',
     task_id: r.values['task_id'] ?? '',
     person_id: r.values['person_id'] ?? '',
-    status: asAutoStatus(r.values['status']) ?? '',
+    status: asAutoStatus(r.values['status']),
   }))
   .filter((r) => ((r.task_id ?? '').trim() !== ''))
 }

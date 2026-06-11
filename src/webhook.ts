@@ -116,7 +116,10 @@ function invalidHint(r: ResolveResult): string {
   return '';
 }
 
-function buildDoneReply(nome: string, r: ResolveResult, remaining: GenericTask[]): string {
+function buildDoneReply(
+    r: ResolveResult, 
+    remaining: GenericTask[]
+  ): string {
   const doneDesc = r.targets.map((t) => `“${t.descricao}”`).join(', ');
   const parts: string[] = [];
   if (r.markedAll) {
@@ -282,14 +285,14 @@ async function handleAdminAdd(
   const per = (tokens[4] ?? '').toLowerCase();
   const descricao = tokens.slice(5).join(' ');
   if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
-    return reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+    return 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
   }
   const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
   if (pAmbiguous.length > 0) {
-    return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+    return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
   }
   if (!pMatch) {
-    return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+    return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
   }
   const targetId = pMatch.person_id;
   const maxNum = tasks.reduce((m, t) => {
@@ -304,9 +307,9 @@ async function handleAdminAdd(
   };
   try {
     await appendTask(newTask);
-    return reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
+    return `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
   } catch {
-    return reply = 'Falha ao criar a tarefa. Veja os logs.';
+    return 'Falha ao criar a tarefa. Veja os logs.';
   }
 }
 
@@ -319,27 +322,27 @@ async function handleAdminRemove(
   const ref = tokens.slice(4).join(' ');
   let reply: string;
   if (!targetNameOrId || !ref) {
-    return reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
+    return 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
   }
   const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
   if (pAmbiguous.length > 0) {
-    return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+    return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
   }
   if (!pMatch) {
-    return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+    return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
   }
   const targetId = pMatch.person_id;
   const targetName = pMatch.nome;
   const personTasks = tasks.filter((t) => t.person_id === targetId);
   if (personTasks.length === 0) {
-    return reply = `Nenhuma tarefa encontrada para ${targetName}.`;
+    return `Nenhuma tarefa encontrada para ${targetName}.`;
   }
   const personGeneric = personTasks.map(taskToGeneric);
   let target = personTasks.find((t) => t.task_id === ref);
   if (!target) {
     const { match, ambiguous } = findTaskByDescription(personGeneric, ref);
     if (ambiguous.length > 0) {
-      return reply = [
+      return [
         'Mais de uma tarefa parecida:', '',
         formatTaskListMultiline(ambiguous), '',
         'Remova pelo task_id para evitar ambiguidade.',
@@ -350,13 +353,13 @@ async function handleAdminRemove(
     }
   }
   if (!target) {
-    return reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
+    return `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
   }
   try {
   await deleteTaskById(target.task_id);
-  return reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+  return `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
   } catch {
-  return reply = 'Falha ao remover a tarefa. Veja os logs.';
+  return 'Falha ao remover a tarefa. Veja os logs.';
   }
 }
 
@@ -440,7 +443,7 @@ function handleDone(
   const remaining = getPendingTasksForToday(tasks, person.person_id, today);
   const autoRemaining = getPendingAutoForToday(designated, person.person_id, logicalToday);
   const combined = buildCombinedList(remaining, autoRemaining, autoTasks);
-  return { reply: buildDoneReply(person.nome, r, combined), relatedKey };
+  return { reply: buildDoneReply(r, combined), relatedKey };
 }
 
 function handleSkip(
