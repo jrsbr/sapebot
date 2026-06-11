@@ -16,6 +16,11 @@ export const TAB = {
   config: 'Config',
 } as const;
 
+const PESSOAS_HEADER = [
+  'person_id', 'nome', 'whatsapp_e164', 'ativo', 'opt_in', 'timezone',
+  'observacoes', 'ferias',
+]; 
+
 const TASK_HEADER = [
   'task_id', 'person_id', 'descricao', 'data', 'status', 'periodicidade',
   'cobrar', 'last_reminder_at', 'completed_at', 'skip_until', 'observacoes',
@@ -84,6 +89,20 @@ function asAutoStatus(v: string): AutoTaskStatus {
   if (s !== '') logger.warn(`status auto inválido: "${v}", assumindo pending`);
   return 'pending';
 }
+
+function personToValues(p: Person): Record<string, string> {
+  return { 
+    person_id: p.person_id,
+    nome: p.nome,
+    whatsapp_e164: p.whatsapp_e164,
+    ativo: boolStr(p.ativo),
+    opt_in: boolStr(p.opt_in),
+    timezone: p.timezone,
+    observacoes: p.observacoes,
+    ferias: boolStr(p.ferias),
+  }
+}
+
 function asPeriod(v: string): Periodicidade {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === 'weekly' || s === 'once') return s;
@@ -330,6 +349,13 @@ export async function saveTasks(
   const header = ensureHeader(TAB.tarefas, TASK_HEADER);
   const items = tasks.map((t) => ({ rowNumber: t.__row, values: taskToValues(t) }));
   await batchWriteRows(TAB.tarefas, header, items);
+}
+
+export async function savePerson(
+  person: Person
+): Promise<void> {
+  const header = ensureHeader(TAB.pessoas, PESSOAS_HEADER);
+  await writeRow(TAB.pessoas, header, person.__row, personToValues(person));
 }
 
 export async function appendMessage(
