@@ -558,7 +558,7 @@ async function handleFeriasOnConfirm(
       logger.error(`Ocorreu um erro ao ${person.person_id} tentar entrar de férias.`, {error : (err as Error).message});
       return 'Ocorreu um erro ao tentar entrar de férias. Digite "confirmar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';
     }
-  return 'Você está oficialmente de férias! Vai aproveitar a vida e não esqueça de voltar de férias quando voltar à Sapecasa. Caso você tenha feito isso por engano, por favor digite "confirmar voltar ferias" e contate o Pituxo.';
+  return 'Você está oficialmente de férias! Vai aproveitar a vida e não esqueça de voltar de férias quando voltar à Sapecasa. Lembre-se que suas tarefas recorrentes pessoais continuam a ser cobradas. Caso você tenha feito isso por engano, por favor digite "confirmar voltar ferias" e contate o Pituxo.';
 }
 
 async function handleFeriasOffConfirm(
