@@ -36,7 +36,6 @@ export function parseMessage(text: string): Intent {
   if (SKIP_WORDS.includes(first)) return buildActionIntent('skip', rest);
   if (first === 'ferias') {
     if (rest === '') return { type: 'ferias_on' };
-
   }
   if (first === 'voltar' && rest === 'ferias') {
     return { type: 'ferias_off' };
