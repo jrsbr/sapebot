@@ -154,14 +154,17 @@ export function vacationPendingToDelete(
   person_id: string, 
   fromDate: string,
 ): Designated[] {
-  const affectedDays = designated.filter((d) => 
-    d.data >= fromDate && 
-    d.status === 'pending'&&
-    d.person_id === person_id
+  const affectedDays = new Set(
+    designated.filter((d) => 
+      d.data >= fromDate && 
+      d.status === 'pending'&&
+      d.person_id === person_id
+    )
+    .map((d) => d.data)
   );
   const affectedDesignated = designated.filter((d) =>
-    d.status === 'pending'&&
-    affectedDays.some((a) => a.data === d.data)
+    d.status === 'pending' &&
+    affectedDays.has(d.data)
   );
   return affectedDesignated;
 }
