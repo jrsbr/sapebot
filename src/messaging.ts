@@ -115,6 +115,7 @@ export function alreadyRemindedToday(
       m.person_id === personId &&
       m.parsed_intent === 'reminder' &&
       m.related_task_id === taskKey &&
+      m.status === 'sent' &&
       isoToLocalDate(m.timestamp, tz) === todayLocal,
   );
 }
