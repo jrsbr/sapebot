@@ -233,6 +233,11 @@ async function handleOneMessage(
       break;
     }
 
+    case 'ferias_off_confirm': {
+      reply = await handleFeriasOffConfirm(person);
+      break;
+    }
+
     case 'admin': {
       const admins = env.ADMIN_PHONES.split(',').map((s) => brPhoneKey(s)).filter(Boolean);
       if (!admins.includes(brPhoneKey(phone))) {
@@ -522,15 +527,15 @@ function handleSkip(
 function handleFeriasOn(
   person: Person
 ): string {
-  if (person.ferias === true) return `Você já está de férias. Para sair de férias digite "voltar".`;
+  if (person.ferias) return `Você já está de férias. Para sair de férias digite "voltar ferias".`;
   return 'Para confirmar a entrada de férias, digite "confirmar ferias". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje entrar de férias, basta ignorar essa mensagem.';
 }
 
 function handleFeriasOff(
   person: Person
 ): string {
-  if (person.ferias === false) return `Você não está de férias. Para entrar de férias digite "ferias".`;
-  return 'Para confirmar o término de suas férias, digite "confirmar voltar". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje voltar de férias, basta ignorar essa mensagem.';
+  if (!person.ferias) return `Você não está de férias. Para entrar de férias digite "ferias".`;
+  return 'Para confirmar o término de suas férias, digite "confirmar voltar ferias". Ao confirmar você voltará a receber tarefas automáticamente. Caso não deseje voltar de férias, basta ignorar essa mensagem.';
 }
 
 async function handleFeriasOnConfirm(
@@ -551,7 +556,20 @@ async function handleFeriasOnConfirm(
       await runWeekGeneration();
     } catch (err) {
       logger.error(`Ocorreu um erro ao ${person.person_id} tentar entrar de férias.`, {error : (err as Error).message});
-      return 'Ocorreu um erro ao tentar entrar de férias. Digite "confirmar ferias" novamente. Caso ocorra um erro novamente, fale com o Pituxo para ajuda.';
+      return 'Ocorreu um erro ao tentar entrar de férias. Digite "confirmar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';
     }
-    return 'Você está oficialmente de férias! Vai aproveitar a vida e não esqueça de voltar de férias quando voltar à Sapecasa. Caso você tenha feito isso por engano, por favor digite "confirmar voltar" e contate o Pituxo.';
+  return 'Você está oficialmente de férias! Vai aproveitar a vida e não esqueça de voltar de férias quando voltar à Sapecasa. Caso você tenha feito isso por engano, por favor digite "confirmar voltar ferias" e contate o Pituxo.';
+}
+
+async function handleFeriasOffConfirm(
+  person: Person,
+): Promise<string> {
+  person.ferias = false;
+  try {
+    await savePerson(person);
+  } catch (err) {
+      logger.error(`Ocorreu um erro ao ${person.person_id} tentar voltar de férias.`, {error : (err as Error).message});
+      return 'Ocorreu um erro ao tentar voltar de férias. Digite "confirmar voltar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';
+    }
+  return 'Boas vindas de volta! A Sapecasa sentiu sua falta. Caso você tenha feito isso por engano, por favor digite "confirmar ferias" e volte para suas férias em paz.';
 }
