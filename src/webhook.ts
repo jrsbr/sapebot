@@ -3,11 +3,11 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { env } from './config';
 import { logger } from './logger';
-import { nowIso, localDate, addDays } from './time';
+import { nowIso, localDate, addDays, logicalDate, localHour } from './time';
 import {
   loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated,
   deleteRows, TAB,
-  savePerson
+  savePerson, loadGMPhrases
 } from './sheets';
 import { parseMessage } from './parser';
 import {
@@ -20,7 +20,6 @@ import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboun
 import { sendText } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
-import { logicalDate } from './time';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask } from './types'
 
@@ -240,6 +239,27 @@ async function handleOneMessage(
 
     case 'calendar': {
       reply = formatWeekText(person.nome, combined, buildWeekCalendar(tasks, designated, autoTask, person.person_id, today, logicalToday));
+      break;
+    }
+
+    case 'bomdia': {
+      const h = localHour(tz);
+      if (h < 5) {
+        reply = 'Ainda não é manhã... volte a dormir e me mande um "bom dia" depois das 5h.';
+      } else if (h >= 14) {
+        reply = 'Já não é mais manhã por aqui! Mas fica o desejo de uma boa tarde ou noite. ';
+      } else {
+        try {
+          const frases = await loadGMPhrases();
+          reply =
+            frases.length > 0
+              ? frases[Math.floor(Math.random() * frases.length)]
+              : `Bom dia, ${person.nome}!`;
+        } catch (err) {
+          logger.error('Falha ao carregar frases de bom dia', { error: (err as Error).message });
+          reply = `Bom dia, ${person.nome}!`;
+        }
+      }
       break;
     }
 
