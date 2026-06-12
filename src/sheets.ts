@@ -336,7 +336,7 @@ export async function loadDesignated(): Promise<Designated[]> {
   .filter((r) => ((r.task_id ?? '').trim() !== ''))
 }
 
-export async function loadBomdiaPhrases(): Promise<string[]> {
+export async function loadGMPhrases(): Promise<string[]> {
   const { header, rows } = await loadTable(TAB.bomdia);
   headerCache[TAB.bomdia] = header;
   return rows
