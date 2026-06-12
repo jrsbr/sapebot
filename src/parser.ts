@@ -44,6 +44,7 @@ export function parseMessage(text: string): Intent {
     if (rest === 'ferias') return { type: 'ferias_on_confirm' };
     if (rest === 'voltar ferias') return { type: 'ferias_off_confirm' };
   }
+  if (first === 'semana' && rest === '') return { type: 'calendar' };
   
   return { type: 'unknown', raw };
 }
