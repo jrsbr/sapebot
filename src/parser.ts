@@ -38,14 +38,12 @@ export function parseMessage(text: string): Intent {
     if (rest === '') return { type: 'ferias_on' };
 
   }
-  if (first === 'voltar ferias') {
-    if (rest === '') return { type: 'ferias_off' };
-    return { type: 'unknown', raw };
+  if (first === 'voltar' && rest === 'ferias') {
+    return { type: 'ferias_off' };
   }
   if (first === 'confirmar') {
     if (rest === 'ferias') return { type: 'ferias_on_confirm' };
     if (rest === 'voltar ferias') return { type: 'ferias_off_confirm' };
-    return { type: 'unknown', raw };
   }
   
   return { type: 'unknown', raw };
