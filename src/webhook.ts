@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { env } from './config';
 import { logger } from './logger';
-import { nowIso, localDate } from './time';
+import { nowIso, localDate, addDays } from './time';
 import {
   loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated,
   deleteRows, TAB,
@@ -15,13 +15,13 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport
  } from './messaging';
 import { sendText } from './whatsapp';
 import { buildCombinedList, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { logicalDate } from './time';
-import { getPendingAutoForToday, vacationPendingToDelete } from './autotask';
+import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask } from './types'
 
 export const webhookRouter = Router();
@@ -266,7 +266,12 @@ async function handleOneMessage(
         break;
       }
 
-      reply = 'Subcomandos: add, remove, list.';
+      if (sub === 'report') {
+        reply = handleAdminReport(people, autoTask, designated, logicalToday);
+        break;
+      }
+
+      reply = 'Subcomandos: add, remove, list, report.';
       break;
     }
 
@@ -572,4 +577,15 @@ async function handleFeriasOffConfirm(
       return 'Ocorreu um erro ao tentar voltar de férias. Digite "confirmar voltar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';
     }
   return 'Boas vindas de volta! A Sapecasa sentiu sua falta. Caso você tenha feito isso por engano, por favor digite "confirmar ferias" e volte para suas férias em paz.';
+}
+
+function handleAdminReport(
+  people: Person[], 
+  autoTask: AutoTask[], 
+  designated: Designated[], 
+  logicalToday: string,
+): string {
+  const cut = addDays(logicalToday, -7);
+  const missedAutoTask = missedInWindow(designated, cut);
+  return formatMissedReport(missedAutoTask, people, autoTask);
 }
