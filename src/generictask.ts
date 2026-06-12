@@ -1,5 +1,6 @@
 import type { GenericTask, Task, AutoTask, Designated, Intent, ResolveResult } from "./types";
 import { normalizeText } from "./parser";
+import { addDays } from "./time";
 
 export function sortGenericTask(
     tasks: GenericTask[],
@@ -129,4 +130,53 @@ export function findTaskByDescription(
 
   const top = scored.filter((s) => s.score === scored[0].score).map((s) => s.task);
   return { ambiguous: top };
+}
+
+export function buildWeekCalendar(
+  tasks: Task[],
+  designated: Designated[],
+  autoTasks: AutoTask[],
+  person_id: string,
+  today: string,
+  logicalToday: string,
+): { data: string; descricoes: string[] }[] {
+  const personTasks = tasks.filter(
+    (t) => t.person_id === person_id && t.status !== 'cancelled',
+  );
+  const personAutos = designated.filter(
+    (d) => d.person_id === person_id && d.status === 'pending' && d.data >= logicalToday,
+  );
+  const descOf = (task_id: string) =>
+    autoTasks.find((a) => a.task_id === task_id)?.descricao || task_id;
+
+  const days: { data: string; descricoes: string[] }[] = [];
+
+  for (let offset = 0; offset <= 6; offset++) {
+    const date = addDays(today, offset);
+    const normais = personTasks
+      .filter((t) => {
+        if (t.periodicidade === 'daily') return !t.data || t.data <= date;
+        if (t.periodicidade === 'weekly') {
+          if (!t.data) return false; 
+          if (t.data > today) return t.data === date;
+          const renewal = addDays(t.data, 7);
+          const display = renewal < today ? today : renewal; 
+          return display === date;
+        }
+        return t.status === 'pending' && t.data === date;
+      })
+      .sort((a, b) => a.task_id.localeCompare(b.task_id));
+
+    const autos = personAutos
+      .filter((d) => d.data === date)
+      .sort((a, b) => a.task_id.localeCompare(b.task_id));
+
+    const descricoes = [
+      ...normais.map((t) => t.descricao),
+      ...autos.map((d) => descOf(d.task_id)),
+    ];
+    if (descricoes.length > 0) days.push({ data: date, descricoes });
+  }
+
+  return days;
 }

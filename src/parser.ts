@@ -36,7 +36,6 @@ export function parseMessage(text: string): Intent {
   if (SKIP_WORDS.includes(first)) return buildActionIntent('skip', rest);
   if (first === 'ferias') {
     if (rest === '') return { type: 'ferias_on' };
-
   }
   if (first === 'voltar' && rest === 'ferias') {
     return { type: 'ferias_off' };
@@ -45,6 +44,7 @@ export function parseMessage(text: string): Intent {
     if (rest === 'ferias') return { type: 'ferias_on_confirm' };
     if (rest === 'voltar ferias') return { type: 'ferias_off_confirm' };
   }
+  if (first === 'semana' && rest === '') return { type: 'calendar' };
   
   return { type: 'unknown', raw };
 }

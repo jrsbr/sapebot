@@ -15,10 +15,10 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText
  } from './messaging';
 import { sendText } from './whatsapp';
-import { buildCombinedList, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
+import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { logicalDate } from './time';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
@@ -235,6 +235,11 @@ async function handleOneMessage(
 
     case 'ferias_off_confirm': {
       reply = await handleFeriasOffConfirm(person);
+      break;
+    }
+
+    case 'calendar': {
+      reply = formatWeekText(person.nome, combined, buildWeekCalendar(tasks, designated, autoTask, person.person_id, today, logicalToday));
       break;
     }
 
