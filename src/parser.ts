@@ -45,7 +45,8 @@ export function parseMessage(text: string): Intent {
     if (rest === 'voltar ferias') return { type: 'ferias_off_confirm' };
   }
   if (first === 'semana' && rest === '') return { type: 'calendar' };
-  
+  if (/^bom\s?dia+\b/.test(norm)) return { type: 'bomdia' };
+
   return { type: 'unknown', raw };
 }
 
