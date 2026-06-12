@@ -168,3 +168,17 @@ export function vacationPendingToDelete(
   );
   return affectedDesignated;
 }
+
+export function missedInWindow(
+  designated: Designated[], 
+  fromDate: string
+): Designated[] {
+  return designated.filter((d) => 
+    d.data >= fromDate &&
+    d.status === 'missed'
+  )
+  .sort((a,b) =>
+    a.data.localeCompare(b.data) ||
+    a.person_id.localeCompare(b.person_id)
+  );
+}
