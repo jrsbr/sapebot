@@ -13,6 +13,7 @@ export const TAB = {
   designacoes: 'Designacoes',
   designado: 'Designado',
   mensagens: 'Mensagens',
+  bomdia: 'Bomdia',
   config: 'Config',
 } as const;
 
@@ -41,6 +42,8 @@ const DESIGNATION_HEADER = [
 const DESIGNATED_HEADER = [
   'data', 'task_id', 'person_id', 'status',
 ]
+
+const BOMDIA_HEADER = ['frase'];
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 const headerCache: Record<string, string[]> = {};
@@ -331,6 +334,14 @@ export async function loadDesignated(): Promise<Designated[]> {
     status: asAutoStatus(r.values['status']),
   }))
   .filter((r) => ((r.task_id ?? '').trim() !== ''))
+}
+
+export async function loadBomdiaPhrases(): Promise<string[]> {
+  const { header, rows } = await loadTable(TAB.bomdia);
+  headerCache[TAB.bomdia] = header;
+  return rows
+    .map((r) => (r.values['frase'] ?? '').trim())
+    .filter((f) => f !== '');
 }
 
 // ===== Writers tipados =====
