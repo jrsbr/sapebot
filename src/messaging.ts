@@ -1,5 +1,5 @@
 import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated } from './types';
-import { nowIso, isoToLocalDate } from './time';
+import { nowIso, isoToLocalDate, weekdayName } from './time';
 
 // ===== Formatação de mensagens =====
 
@@ -130,4 +130,26 @@ export function formatMissedReport(
     `Aqui está a lista de todas as tarefas não feitas nos últimos 7 dias:`, 
     '',
     missed.map((m, i) => `${i + 1}. ${m.data} - ${descFromTaskId(m.task_id)} - ${nameFromPersonId(m.person_id)}`).join('\n')].join('\n');
+}
+
+export function formatWeekText(
+  name: string, 
+  combined: GenericTask[], 
+  calendar: { data: string; descricoes: string[] }[]
+): string {
+  let reply: string = `Olá, ${name}. Você não tem tarefas pendentes para hoje!\n`;
+  if (combined.length > 0) reply = [
+    `Olá, ${name}. Tarefas pendentes hoje:`,
+    formatTaskListMultiline(combined),
+    ''
+  ].join('\n');
+  if (calendar.length === 0) return [
+    reply,
+    'O calendário da sua semana está vazio, aproveite!'
+  ]. join('\n');
+  return [
+    reply,
+    `Calendário da Semana:`,
+    calendar.map((d) => `- *${weekdayName(d.data)}*: ${d.descricoes.join(', ')}`).join('\n')
+  ].join('\n');
 }
