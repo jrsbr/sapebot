@@ -1,12 +1,5 @@
-// Interpretação das respostas dos usuários. Função pura (sem I/O), fácil de testar.
-
-export type Intent =
-  | { type: 'done'; indices?: number[]; query?: string }
-  | { type: 'skip'; indices?: number[]; query?: string }
-  | { type: 'status' }
-  | { type: 'help' }
-  | { type: 'unknown'; raw: string }
-  | { type: 'admin'; raw: string };
+import { unknown } from "zod";
+import type { Intent } from "./types";
 
 // Normaliza texto: minúsculas, sem acentos, espaços colapsados.
 export function normalizeText(s: string): string {
@@ -41,7 +34,20 @@ export function parseMessage(text: string): Intent {
   if (STATUS_WORDS.includes(first)) return { type: 'status' };
   if (DONE_WORDS.includes(first)) return buildActionIntent('done', rest);
   if (SKIP_WORDS.includes(first)) return buildActionIntent('skip', rest);
+  if (first === 'ferias') {
+    if (rest === '') return { type: 'ferias_on' };
 
+  }
+  if (first === 'voltar ferias') {
+    if (rest === '') return { type: 'ferias_off' };
+    return { type: 'unknown', raw };
+  }
+  if (first === 'confirmar') {
+    if (rest === 'ferias') return { type: 'ferias_on_confirm' };
+    if (rest === 'voltar ferias') return { type: 'ferias_off_confirm' };
+    return { type: 'unknown', raw };
+  }
+  
   return { type: 'unknown', raw };
 }
 

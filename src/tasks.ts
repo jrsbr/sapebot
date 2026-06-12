@@ -1,7 +1,7 @@
 // Regras de negócio puras (sem I/O), tipos do domínio e formatação de mensagens.
-import { Intent, normalizeText } from './parser';
-import { daysBetween, isoToLocalDate } from './time';
-import type { Person, Task, MessageRow } from './types'
+import { normalizeText } from './parser';
+import { daysBetween } from './time';
+import type { Person, Task } from './types'
 
 
 // ===== Telefone =====
@@ -98,40 +98,6 @@ export function markSkippedForToday(task: Task, today: string): Task {
   return task;
 }
 
-// ===== Casamento por descrição ("feito lavar louça") =====
-
-export function findTaskByDescription(
-  pending: Task[],
-  query: string,
-): { match?: Task; ambiguous: Task[] } {
-  const q = normalizeText(query);
-  if (!q) return { ambiguous: [] };
-  const qTokens = q.split(' ').filter(Boolean);
-
-  const scored = pending
-    .map((t) => {
-      const desc = normalizeText(t.descricao);
-      const descTokens = new Set(desc.split(' ').filter(Boolean));
-      const allTokensPresent = qTokens.every((tok) => desc.includes(tok));
-      const overlap = qTokens.filter((tok) => descTokens.has(tok)).length;
-      let score = 0;
-      if (desc === q) score = 100;
-      else if (allTokensPresent) score = 60 + overlap;
-      else if (desc.includes(q)) score = 40;
-      else score = overlap;
-      return { task: t, score };
-    })
-    .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score);
-
-  if (scored.length === 0) return { ambiguous: [] };
-  if (scored.length === 1) return { match: scored[0].task, ambiguous: [] };
-  if (scored[0].score > scored[1].score) return { match: scored[0].task, ambiguous: [] };
-
-  const top = scored.filter((s) => s.score === scored[0].score).map((s) => s.task);
-  return { ambiguous: top };
-}
-
 // Compara a distância entre duas strings
 function damerauLevenshtein(
   A: string,
@@ -193,81 +159,10 @@ export function findPersonByIdOrName(
   return { ambiguous: top };
 }
 
-// ===== Resolução de alvos para done/skip =====
-
-export interface ResolveResult {
-  targets: Task[];
-  invalidNumbers: number[];
-  ambiguous: Task[];
-  markedAll: boolean;
-  emptyList: boolean;
-}
-
-export function resolveTargets(
-  intent: Extract<Intent, { type: 'done' | 'skip' }>,
-  pending: Task[],
-): ResolveResult {
-  const base: ResolveResult = {
-    targets: [],
-    invalidNumbers: [],
-    ambiguous: [],
-    markedAll: false,
-    emptyList: false,
-  };
-
-  if (pending.length === 0) return { ...base, emptyList: true };
-
-  // Texto livre
-  if (intent.query) {
-    const { match, ambiguous } = findTaskByDescription(pending, intent.query);
-    if (match) return { ...base, targets: [match] };
-    return { ...base, ambiguous };
-  }
-
-  // Índices
-  if (intent.indices && intent.indices.length > 0) {
-    const targets: Task[] = [];
-    const invalid: number[] = [];
-    for (const n of intent.indices) {
-      const t = pending[n - 1];
-      if (t) targets.push(t);
-      else invalid.push(n);
-    }
-    return { ...base, targets, invalidNumbers: invalid };
-  }
-
-  // Sem argumento (ex.: "feito")
-  if (pending.length === 1) return { ...base, targets: [pending[0]] };
-  // Várias pendentes -> marca todas, deixando explícito na resposta.
-  return { ...base, targets: [...pending], markedAll: true };
-}
+// ===== Idempotência =====
 
 export function dedupeByRow(tasks: Task[]): Task[] {
   const map = new Map<number, Task>();
   for (const t of tasks) map.set(t.__row, t);
   return [...map.values()];
 }
-
-// ===== Idempotência =====
-
-export function reminderTaskKey(tasks: Task[]): string {
-  return tasks.map((t) => t.task_id).sort().join(',');
-}
-
-export function alreadyRemindedToday(
-  messages: MessageRow[],
-  personId: string,
-  todayLocal: string,
-  taskKey: string,
-  tz: string,
-): boolean {
-  return messages.some(
-    (m) =>
-      m.direction === 'outbound' &&
-      m.person_id === personId &&
-      m.parsed_intent === 'reminder' &&
-      m.related_task_id === taskKey &&
-      isoToLocalDate(m.timestamp, tz) === todayLocal,
-  );
-}
-

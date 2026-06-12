@@ -3,22 +3,26 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { env } from './config';
 import { logger } from './logger';
-import { nowIso, localDate } from './time';
+import { nowIso, localDate, addDays } from './time';
 import {
-  loadPeople, loadTasks, loadMessages, saveTasks, appendMessage, appendTask, deleteTaskById
+  loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated,
+  deleteRows, TAB,
+  savePerson
 } from './sheets';
-import { Intent, parseMessage } from './parser';
+import { parseMessage } from './parser';
 import {
-  ResolveResult,
-  findPersonByPhone, getPendingTasksForToday, resolveTargets,
+  findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
-  brPhoneKey, onlyDigits, findTaskByDescription,
-  findPersonByIdOrName
+  brPhoneKey, findPersonByIdOrName
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport
  } from './messaging';
 import { sendText } from './whatsapp';
-import type { Person, Task, MessageRow, IncomingMessage } from './types'
+import { buildCombinedList, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
+import { runWeekGeneration } from './scheduler';
+import { logicalDate } from './time';
+import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
+import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask } from './types'
 
 export const webhookRouter = Router();
 
@@ -81,8 +85,10 @@ async function processWebhookBody(body: any): Promise<void> {
   let people: Person[];
   let tasks: Task[];
   let messages: MessageRow[];
+  let autoTask: AutoTask[];
+  let designated: Designated[];
   try {
-    [people, tasks, messages] = await Promise.all([loadPeople(), loadTasks(), loadMessages()]);
+    [people, tasks, messages, autoTask, designated] = await Promise.all([loadPeople(), loadTasks(), loadMessages(), loadAutoTasks(), loadDesignated()]);
   } catch (err) {
     logger.error('Falha ao carregar planilha no webhook', { error: (err as Error).message });
     return;
@@ -91,7 +97,7 @@ async function processWebhookBody(body: any): Promise<void> {
   const seenIds = new Set(messages.map((m) => m.message_id).filter(Boolean));
   for (const msg of incoming) {
     try {
-      await handleOneMessage(msg, people, tasks, seenIds);
+      await handleOneMessage(msg, people, tasks, autoTask, designated, seenIds);
     } catch (err) {
       logger.error('Erro ao tratar mensagem recebida', { error: (err as Error).message });
     }
@@ -113,7 +119,10 @@ function invalidHint(r: ResolveResult): string {
   return '';
 }
 
-function buildDoneReply(nome: string, r: ResolveResult, remaining: Task[]): string {
+function buildDoneReply(
+    r: ResolveResult, 
+    remaining: GenericTask[]
+  ): string {
   const doneDesc = r.targets.map((t) => `“${t.descricao}”`).join(', ');
   const parts: string[] = [];
   if (r.markedAll) {
@@ -138,6 +147,8 @@ async function handleOneMessage(
   msg: IncomingMessage,
   people: Person[],
   tasks: Task[],
+  autoTask: AutoTask[],
+  designated: Designated[],
   seenIds: Set<string>,
 ): Promise<void> {
   // Dedup de reentregas da Meta.
@@ -151,6 +162,7 @@ async function handleOneMessage(
   const phone = msg.from;
   const person = findPersonByPhone(people, phone);
   const inboundRow = buildInboundRow(msg, person);
+  const logicalToday = logicalDate(env.DEFAULT_TIMEZONE);
 
   // 3) Número não cadastrado.
   if (!person) {
@@ -179,10 +191,13 @@ async function handleOneMessage(
   const tz = person.timezone || env.DEFAULT_TIMEZONE;
   const today = localDate(tz);
   const pending = getPendingTasksForToday(tasks, person.person_id, today);
+  const autoPending = getPendingAutoForToday(designated, person.person_id, logicalToday);
+  const combined = buildCombinedList(pending, autoPending, autoTask);
 
   let reply = '';
   let relatedKey = '';
   const changed: Task[] = [];
+  const autoChanged: Designated[] = [];
 
   switch (intent.type) {
     case 'help':
@@ -190,16 +205,36 @@ async function handleOneMessage(
       break;
 
     case 'status':
-      reply = formatStatusText(person.nome, pending);
+      reply = formatStatusText(person.nome, combined);
       break;
 
     case 'done': {
-      ({ reply, relatedKey } = handleDone(intent, pending, person, today, changed, relatedKey, tasks));
+      ({ reply, relatedKey } = handleDone(tasks, designated, autoTask, intent, combined, person, today, logicalToday, changed, autoChanged, relatedKey));
       break;
     }
 
     case 'skip': {
-      ({ reply, relatedKey } = handleSkip(intent, pending, person, today, changed, relatedKey, tasks));
+      ({ reply, relatedKey } = handleSkip(tasks, designated, autoTask, intent, combined, person, today, logicalToday, changed, autoChanged, relatedKey));
+      break;
+    }
+
+    case 'ferias_on': {
+      reply = handleFeriasOn(person);
+      break;
+    }
+    
+    case 'ferias_off': {
+      reply = handleFeriasOff(person);
+      break;
+    }
+
+    case 'ferias_on_confirm': {
+      reply = await handleFeriasOnConfirm(person, designated);
+      break;
+    }
+
+    case 'ferias_off_confirm': {
+      reply = await handleFeriasOffConfirm(person);
       break;
     }
 
@@ -231,7 +266,12 @@ async function handleOneMessage(
         break;
       }
 
-      reply = 'Subcomandos: add, remove, list.';
+      if (sub === 'report') {
+        reply = handleAdminReport(people, autoTask, designated, logicalToday);
+        break;
+      }
+
+      reply = 'Subcomandos: add, remove, list, report.';
       break;
     }
 
@@ -244,6 +284,16 @@ async function handleOneMessage(
       await saveTasks(dedupeByRow(changed));
     } catch (err) {
       logger.error('Falha ao salvar tarefas após comando', { error: (err as Error).message });
+    }
+  }
+
+  if (autoChanged.length) {
+    for (const d of autoChanged) {
+      try { 
+        await saveDesignated(d);
+      } catch (err) {
+        logger.error('Falha ao salvar auto tarefas após comando', { error: (err as Error).message }); 
+      }
     }
   }
 
@@ -263,14 +313,14 @@ async function handleAdminAdd(
   const per = (tokens[4] ?? '').toLowerCase();
   const descricao = tokens.slice(5).join(' ');
   if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
-    return reply = 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
+    return 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
   }
   const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
   if (pAmbiguous.length > 0) {
-    return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+    return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
   }
   if (!pMatch) {
-    return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+    return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
   }
   const targetId = pMatch.person_id;
   const maxNum = tasks.reduce((m, t) => {
@@ -285,9 +335,9 @@ async function handleAdminAdd(
   };
   try {
     await appendTask(newTask);
-    return reply = `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
+    return `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
   } catch {
-    return reply = 'Falha ao criar a tarefa. Veja os logs.';
+    return 'Falha ao criar a tarefa. Veja os logs.';
   }
 }
 
@@ -300,41 +350,44 @@ async function handleAdminRemove(
   const ref = tokens.slice(4).join(' ');
   let reply: string;
   if (!targetNameOrId || !ref) {
-  return reply = 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
+    return 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
   }
   const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
   if (pAmbiguous.length > 0) {
-  return reply = `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+    return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
   }
   if (!pMatch) {
-  return reply = `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+    return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
   }
   const targetId = pMatch.person_id;
   const targetName = pMatch.nome;
   const personTasks = tasks.filter((t) => t.person_id === targetId);
   if (personTasks.length === 0) {
-  return reply = `Nenhuma tarefa encontrada para ${targetName}.`;
+    return `Nenhuma tarefa encontrada para ${targetName}.`;
   }
+  const personGeneric = personTasks.map(taskToGeneric);
   let target = personTasks.find((t) => t.task_id === ref);
   if (!target) {
-  const { match, ambiguous } = findTaskByDescription(personTasks, ref);
-  if (ambiguous.length > 0) {
-    return reply = [
-      'Mais de uma tarefa parecida:', '',
-      formatTaskListMultiline(ambiguous), '',
-      'Remova pelo task_id para evitar ambiguidade.',
-    ].join('\n');
-  }
-  target = match;
+    const { match, ambiguous } = findTaskByDescription(personGeneric, ref);
+    if (ambiguous.length > 0) {
+      return [
+        'Mais de uma tarefa parecida:', '',
+        formatTaskListMultiline(ambiguous), '',
+        'Remova pelo task_id para evitar ambiguidade.',
+      ].join('\n');
+    }
+    if (match) {
+      target = personTasks.find((t) => t.task_id === match.task_id);
+    }
   }
   if (!target) {
-  return reply = `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
+    return `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
   }
   try {
   await deleteTaskById(target.task_id);
-  return reply = `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+  return `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
   } catch {
-  return reply = 'Falha ao remover a tarefa. Veja os logs.';
+  return 'Falha ao remover a tarefa. Veja os logs.';
   }
 }
 
@@ -370,13 +423,17 @@ function handleAdminList(
 }
 
 function handleDone(
+  tasks: Task[],
+  designated: Designated[],
+  autoTasks: AutoTask[],
   intent: Extract<Intent, {type: 'done' | 'skip'}>,
-  pending: Task[],
+  pending: GenericTask[],
   person: Person,
   today: string,
+  logicalToday: string,
   changed: Task[],
+  autoChanged: Designated[],
   relatedKey: string,
-  tasks: Task[]
 ): { reply: string, relatedKey: string } {
   const r = resolveTargets(intent, pending);
   if (r.emptyList) {
@@ -395,51 +452,140 @@ function handleDone(
     return { reply: `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim(), relatedKey };
   }
   const stamp = nowIso();
-  for (const t of r.targets) {
-    markDone(t, stamp);
-    changed.push(t);
-  }
-  relatedKey = r.targets.map((t) => t.task_id).join(',');
+  for (const g of r.targets) {
+    if (g.kind === 'normal') {
+      const t = tasks.find((x) => x.__row === g.__row);
+      if (t) {
+        markDone(t, stamp);
+        changed.push(t);
+      }
+    } else {
+        const d = designated.find((x) => x.__row === g.__row);
+        if (d) {
+          d.status = 'done';
+          autoChanged.push(d);
+        }
+      }
+    }
+  relatedKey = r.targets.map((g) => g.task_id).join(',');
   const remaining = getPendingTasksForToday(tasks, person.person_id, today);
-  return { reply: buildDoneReply(person.nome, r, remaining), relatedKey };
+  const autoRemaining = getPendingAutoForToday(designated, person.person_id, logicalToday);
+  const combined = buildCombinedList(remaining, autoRemaining, autoTasks);
+  return { reply: buildDoneReply(r, combined), relatedKey };
 }
 
 function handleSkip(
+  tasks: Task[],
+  designated: Designated[],
+  autoTasks: AutoTask[],
   intent: Extract<Intent, {type: 'done' | 'skip'}>,
-  pending: Task[],
+  pending: GenericTask[],
   person: Person,
   today: string,
+  logicalToday: string,
   changed: Task[],
+  autoChanged: Designated[],
   relatedKey: string,
-  tasks: Task[]
-): { reply: string, relatedKey: string}{
+): { reply: string, relatedKey: string} {
   const r = resolveTargets(intent, pending);
-  if (r.emptyList) {
-    return { reply:`Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey};
-  }
+  if (r.emptyList) return { reply: `Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey };
+
   if (r.ambiguous.length > 0) {
-    return {reply: [
-      'Mais de uma tarefa parecida. Qual você quer pular?',
-      '',
-      formatTaskListMultiline(r.ambiguous),
-      '',
-      'Responda com o número (ex.: "pular 1").',
-    ].join('\n'), relatedKey};
+    return { reply: ['Mais de uma tarefa parecida. Qual você quer pular?', '', formatTaskListMultiline(r.ambiguous), '', 'Responda com o número (ex.: "pular 1").'].join('\n'), relatedKey };
   }
+
   if (r.targets.length === 0) {
-    return {reply: `Não encontrei essa tarefa para pular. ${invalidHint(r)} Envie "status" ou "ajuda".`.trim(), relatedKey};
+    return { reply: `Não encontrei essa tarefa para pular. ${invalidHint(r)} Envie "status" ou "ajuda".`.trim(), relatedKey };
   }
-  for (const t of r.targets) {
-    markSkippedForToday(t, today);
-    changed.push(t);
+
+  const normais = r.targets.filter((g) => g.kind === 'normal');
+  const ignoredAuto = r.targets.filter((g) => g.kind === 'auto');
+
+  if (normais.length === 0) {
+    return { reply: 'A tarefa escolhida não pode ser pulada por ser automática (da casa).', relatedKey };
   }
-  relatedKey = r.targets.map((t) => t.task_id).join(',');
+
+  for (const g of normais) {
+    const t = tasks.find((x) => x.__row === g.__row);
+    if (t) { 
+      markSkippedForToday(t, today); 
+      changed.push(t); 
+    }
+  }
+  relatedKey = normais.map((g) => g.task_id).join(',');
+
   const remaining = getPendingTasksForToday(tasks, person.person_id, today);
-  const skippedDesc = r.targets.map((t) => `“${t.descricao}”`).join(', ');
-  return {reply: [
-    `Ok, pulei por hoje: ${skippedDesc}.`,
-    remaining.length
-      ? `Ainda faltam:\n${formatTaskListMultiline(remaining)}`
-      : 'Nada mais pendente por hoje.',
-  ].join('\n\n'), relatedKey};
+  const autoRemaining = getPendingAutoForToday(designated, person.person_id, logicalToday);
+  const combined = buildCombinedList(remaining, autoRemaining, autoTasks);
+
+  const skippedDesc = normais.map((g) => `“${g.descricao}”`).join(', ');
+  const parts: string[] = [`Ok, pulei por hoje: ${skippedDesc}.`];
+  if (ignoredAuto.length > 0) {
+    const nomes = ignoredAuto.map((g) => `“${g.descricao}”`).join(', ');
+    parts.push(`Obs.: ${nomes} não pode(m) ser pulada(s) (tarefa automática).`);
+  }
+  parts.push(combined.length ? `Ainda faltam:\n${formatTaskListMultiline(combined)}` : 'Nada mais pendente por hoje.');
+
+  return { reply: parts.join('\n\n'), relatedKey };
+}
+
+function handleFeriasOn(
+  person: Person
+): string {
+  if (person.ferias) return `Você já está de férias. Para sair de férias digite "voltar ferias".`;
+  return 'Para confirmar a entrada de férias, digite "confirmar ferias". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje entrar de férias, basta ignorar essa mensagem.';
+}
+
+function handleFeriasOff(
+  person: Person
+): string {
+  if (!person.ferias) return `Você não está de férias. Para entrar de férias digite "ferias".`;
+  return 'Para confirmar o término de suas férias, digite "confirmar voltar ferias". Ao confirmar você voltará a receber tarefas automáticamente. Caso não deseje voltar de férias, basta ignorar essa mensagem.';
+}
+
+async function handleFeriasOnConfirm(
+  person: Person,
+  designated: Designated[],
+): Promise<string> {
+    const logicalToday = logicalDate(env.DEFAULT_TIMEZONE);
+    const pendingToDelete = vacationPendingToDelete(designated, person.person_id, logicalToday);
+    const rowsToDelete: number[] = [];
+    for (const p of pendingToDelete) {
+      if (p.__row !== undefined) rowsToDelete.push(p.__row);
+    }
+
+    try {
+      person.ferias = true;
+      await savePerson(person);
+      await deleteRows(TAB.designado, rowsToDelete);
+      await runWeekGeneration();
+    } catch (err) {
+      logger.error(`Ocorreu um erro ao ${person.person_id} tentar entrar de férias.`, {error : (err as Error).message});
+      return 'Ocorreu um erro ao tentar entrar de férias. Digite "confirmar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';
+    }
+  return 'Você está oficialmente de férias! Vai aproveitar a vida e não esqueça de voltar de férias quando voltar à Sapecasa. Lembre-se que suas tarefas recorrentes pessoais continuam a ser cobradas. Caso você tenha feito isso por engano, por favor digite "confirmar voltar ferias" e contate o Pituxo.';
+}
+
+async function handleFeriasOffConfirm(
+  person: Person,
+): Promise<string> {
+  person.ferias = false;
+  try {
+    await savePerson(person);
+  } catch (err) {
+      logger.error(`Ocorreu um erro ao ${person.person_id} tentar voltar de férias.`, {error : (err as Error).message});
+      return 'Ocorreu um erro ao tentar voltar de férias. Digite "confirmar voltar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';
+    }
+  return 'Boas vindas de volta! A Sapecasa sentiu sua falta. Caso você tenha feito isso por engano, por favor digite "confirmar ferias" e volte para suas férias em paz.';
+}
+
+function handleAdminReport(
+  people: Person[], 
+  autoTask: AutoTask[], 
+  designated: Designated[], 
+  logicalToday: string,
+): string {
+  const cut = addDays(logicalToday, -7);
+  const missedAutoTask = missedInWindow(designated, cut);
+  return formatMissedReport(missedAutoTask, people, autoTask);
 }

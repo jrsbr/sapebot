@@ -7,3 +7,4 @@ csv-export/
 *.log
 .DS_Store
 sapebot-14c043523c39.json
+src/smoke.ts

@@ -1,18 +1,18 @@
-import type { Task, Person, MessageRow, SendResult, IncomingMessage } from './types';
-import { nowIso } from './time';
+import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated } from './types';
+import { nowIso, isoToLocalDate } from './time';
 
 // ===== Formatação de mensagens =====
 
-export function formatTaskListMultiline(tasks: Task[]): string {
+export function formatTaskListMultiline(tasks: GenericTask[]): string {
   return tasks.map((t, i) => `${i + 1}. ${t.descricao}`).join('\n');
 }
 
 // Sem quebras de linha: exigência dos parâmetros de template do WhatsApp.
-export function formatTaskListSingleLine(tasks: Task[]): string {
+export function formatTaskListSingleLine(tasks: GenericTask[]): string {
   return tasks.map((t, i) => `${i + 1}) ${t.descricao}`).join(' | ');
 }
 
-export function formatReminderText(nome: string, tasks: Task[]): string {
+export function formatReminderText(nome: string, tasks: GenericTask[]): string {
   return [
     `Oi, ${nome}. Suas tarefas de hoje são:`,
     '',
@@ -30,7 +30,7 @@ export function formatNoTasksText(nome: string): string {
   return `Oi, ${nome}. Você não tem tarefas pendentes hoje. 🎉`;
 }
 
-export function formatStatusText(nome: string, pending: Task[]): string {
+export function formatStatusText(nome: string, pending: GenericTask[]): string {
   if (pending.length === 0) {
     return `Tudo certo, ${nome}! Você não tem tarefas pendentes hoje. 🎉`;
   }
@@ -47,6 +47,8 @@ export function formatHelpText(): string {
     '- "pular 1" → pula a tarefa 1 só por hoje',
     '- "status" → mostra o que ainda falta hoje',
     '- "ajuda" → mostra esta mensagem',
+    '- "ferias" → entra de férias',
+    '- "voltar ferias" → volta de férias',
   ].join('\n');
 }
 
@@ -97,4 +99,35 @@ export function within24h(messages: MessageRow[], personId: string): boolean {
   const t = Date.parse(last);
   if (Number.isNaN(t)) return false;
   return Date.now() - t < 24 * 60 * 60 * 1000;
+}
+
+export function alreadyRemindedToday(
+  messages: MessageRow[],
+  personId: string,
+  todayLocal: string,
+  taskKey: string,
+  tz: string,
+): boolean {
+  return messages.some(
+    (m) =>
+      m.direction === 'outbound' &&
+      m.person_id === personId &&
+      m.parsed_intent === 'reminder' &&
+      m.related_task_id === taskKey &&
+      isoToLocalDate(m.timestamp, tz) === todayLocal,
+  );
+}
+
+export function formatMissedReport(
+  missed: Designated[], 
+  people: Person[], 
+  autoTasks: AutoTask[],
+): string {
+  if (missed.length === 0) return 'Nenhuma tarefa automática perdida nos últimos 7 dias.';
+  const nameFromPersonId = (pId: string) => people.find((p) => p.person_id === pId)?.nome || pId;
+  const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
+  return [
+    `Aqui está a lista de todas as tarefas não feitas nos últimos 7 dias:`, 
+    '',
+    missed.map((m, i) => `${i + 1}. ${m.data} - ${descFromTaskId(m.task_id)} - ${nameFromPersonId(m.person_id)}`).join('\n')].join('\n');
 }

@@ -2,23 +2,71 @@
 import cron from 'node-cron';
 import { env } from './config';
 import { logger } from './logger';
-import { nowIso, localDate } from './time';
+import { nowIso, localDate, logicalDate, addDays } from './time';
 import {
-  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, pruneOldMessages, purgeOldDoneOnceTasks
+  loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, dumpTab,
+  loadDesignated, saveDesignated, TAB, overwriteTab,
+  loadAutoTasks,
+  appendDesignateds
 } from './sheets';
 import {
-  getPendingTasksForToday, rolloverRecurringTasks,
-  reminderTaskKey, alreadyRemindedToday, dedupeByRow
+  getPendingTasksForToday, rolloverRecurringTasks,dedupeByRow
 } from './tasks';
 import { sendText, sendTemplate } from './whatsapp';
-import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h } from './messaging';
-import type { Person, Task, MessageRow, SendResult } from './types'
+import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
+import type { Person, Task, MessageRow, SendResult, AutoTask, Designated } from './types'
+import { expiredPendingDesignated, fullWeekAssignments } from './autotask';
+import { buildCombinedList, genericTaskKey } from './generictask';
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
   const v = cfg[key];
   if (v == null) return def;
   const s = v.trim().toUpperCase();
   return s === 'TRUE' || s === '1' || s === 'SIM';
+}
+
+export async function pruneOldMessages(hours = 48): Promise<number> {
+  const matrix = await dumpTab(TAB.mensagens);
+  if (matrix.length <= 1) return 0; // só cabeçalho (ou vazia)
+
+  const header = matrix[0];
+  const tsIdx = header.indexOf('timestamp');
+  if (tsIdx === -1) return 0;
+
+  const cutoff = Date.now() - hours * 60 * 60 * 1000;
+  const kept = matrix.slice(1).filter((row) => {
+    const t = Date.parse(row[tsIdx] ?? '');
+    if (Number.isNaN(t)) return true; // sem timestamp válido: não apaga, por segurança
+    return t >= cutoff;
+  });
+
+  const removed = matrix.length - 1 - kept.length;
+  if (removed > 0) await overwriteTab(TAB.mensagens, [header, ...kept]);
+  return removed;
+}
+
+export async function purgeOldDoneOnceTasks(days = 14): Promise<number> {
+  const matrix = await dumpTab(TAB.tarefas);
+  if (matrix.length <= 1) return 0;
+  const header = matrix[0];
+  const perIdx = header.indexOf('periodicidade');
+  const stIdx = header.indexOf('status');
+  const compIdx = header.indexOf('completed_at');
+  if (perIdx === -1 || stIdx === -1 || compIdx === -1) return 0;
+
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const kept = matrix.slice(1).filter((row) => {
+    const per = String(row[perIdx] ?? '').trim().toLowerCase();
+    const st = String(row[stIdx] ?? '').trim().toLowerCase();
+    if (per !== 'once' || st !== 'done') return true; // só mexe em once+done
+    const t = Date.parse(row[compIdx] ?? '');
+    if (Number.isNaN(t)) return true; // sem data válida: não apaga, por segurança
+    return t >= cutoff; // mantém se concluída há menos de `days` dias
+  });
+
+  const removed = matrix.length - 1 - kept.length;
+  if (removed > 0) await overwriteTab(TAB.tarefas, [header, ...kept]);
+  return removed;
 }
 
 export async function runDailyReminders(slot = 'manha'): Promise<void> {
@@ -28,9 +76,11 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   let tasks: Task[];
   let cfg: Record<string, string>;
   let messages: MessageRow[];
+  let autoTasks: AutoTask[];
+  let designated: Designated[];
   try {
-    [people, tasks, cfg, messages] = await Promise.all([
-      loadPeople(), loadTasks(), loadConfig(), loadMessages(),
+    [people, tasks, cfg, messages, autoTasks, designated] = await Promise.all([
+      loadPeople(), loadTasks(), loadConfig(), loadMessages(), loadAutoTasks(), loadDesignated()
     ]);
   } catch (err) {
     logger.error('Não foi possível carregar dados da planilha. Abortando rotina.', {
@@ -64,15 +114,22 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   let sent = 0;
   let skipped = 0;
   let errors = 0;
+  const logicalToday = logicalDate(env.DEFAULT_TIMEZONE);
 
   for (const person of people) {
     if (!person.ativo || !person.opt_in) continue;
     const tz = person.timezone || env.DEFAULT_TIMEZONE;
     const today = localDate(tz);
     const pending = getPendingTasksForToday(tasks, person.person_id, today);
+    const autoPending = designated.filter((d) =>
+      d.person_id === person.person_id && 
+      d.data === logicalToday &&
+      d.status === 'pending'
+    );
+    const combined = buildCombinedList(pending, autoPending, autoTasks);
 
     // 4) Sem tarefas: só envia se configurado.
-    if (pending.length === 0) {
+    if (combined.length === 0) {
       if (!sendNoTask || slot !== 'manha') continue;
       const key = `${slot}:no-tasks`;
       if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
@@ -90,7 +147,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     }
 
     // 5) Idempotência: mesma lista no mesmo dia não reenvia.
-    const key = `${slot}:${reminderTaskKey(pending)}`;
+    const key = `${slot}:${genericTaskKey(combined)}`;
     if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
       logger.info(`Lembrete já enviado hoje para ${person.person_id}, pulando.`);
       skipped++;
@@ -101,10 +158,10 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     let result: SendResult;
     let bodyForLog: string;
     if (within24h(messages, person.person_id)) {
-      bodyForLog = formatReminderText(person.nome, pending);
+      bodyForLog = formatReminderText(person.nome, combined);
       result = await sendText(person.whatsapp_e164, bodyForLog);
     } else {
-      const list = formatTaskListSingleLine(pending);
+      const list = formatTaskListSingleLine(combined);
       bodyForLog = `[template:${env.WHATSAPP_TEMPLATE_TASKS}] nome=${person.nome} tarefas=${list}`;
       result = await sendTemplate(person.whatsapp_e164, env.WHATSAPP_TEMPLATE_TASKS, [
         { type: 'text', text: person.nome },
@@ -141,6 +198,58 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   }
 
   logger.info(`Rotina concluída. Enviados=${sent} Pulados=${skipped} Erros=${errors}`);
+}
+
+export async function runMissedDesignated(): Promise<{ succ: number, fail: number, lastError?: Error}> {
+  const designated = await loadDesignated();
+  const logicDay = logicalDate(env.DEFAULT_TIMEZONE);
+  const newMissed = expiredPendingDesignated(designated, logicDay);
+  let succ = 0;
+  let fail = 0;
+  let lastError: Error | undefined;
+  for (const d of newMissed) {
+    d.status = 'missed';
+    try {
+      await saveDesignated(d);
+      succ ++;
+    }
+    catch (e){
+      fail ++;
+      lastError = e as Error;
+    }
+  }
+  if (fail === 0) return { succ, fail };
+  return { succ, fail, lastError };
+}
+
+export async function runWeekGeneration(): Promise<{ generated: number, partial: string[] }> {
+  const [ designated, people, autoTask ] = await Promise.all([
+    loadDesignated(),
+    loadPeople(),
+    loadAutoTasks(),
+  ]);
+  const pool = people.filter((p) => p.ativo === true && p.opt_in === true && p.ferias === false);
+  const today = logicalDate(env.DEFAULT_TIMEZONE);
+  const cut = addDays(today, -60);
+  const { newDesignated, partialDays } = fullWeekAssignments(pool, autoTask, designated, today, cut);
+  let appendWork = false;
+  
+  if (newDesignated.length > 0) {
+    try {
+      await appendDesignateds(newDesignated);
+      appendWork = true;
+    }
+    catch (err) {
+      logger.error('Ocorreu um erro ao adicionar as novas tarefas automática.', { error: (err as Error).message});
+      appendWork = false;
+    }
+  }
+
+  if (partialDays.length > 0) {
+    logger.warn(`Dias parcialmente preenchidos (pulados): ${partialDays.join(', ')}. Preencher manualmente.`);
+  }
+
+  return { generated: appendWork ? newDesignated.length : 0, partial: partialDays };
 }
 
 export function startScheduler(): void {
@@ -191,9 +300,31 @@ export function startScheduler(): void {
     },
     { timezone: env.DEFAULT_TIMEZONE },
   );
+
+  cron.schedule(
+    '0 3 * * *',
+    async () => {
+      try {
+        const { succ, fail, lastError } = await runMissedDesignated();
+        if (fail === 0) logger.info(`Tarefas automáticas marcadas como 'missed': ${succ} marcadas.`);
+        else logger.error(`Ocorreu um erro ao marcar as tarefas automáticas como 'missed': ${succ} foram corretamente marcadas enquanto ${fail} apresentaram erros. Último erro detectado:${lastError?.message}`)
+      }
+      catch (err) {
+        logger.error(`Ocorreu um erro ao carregar os designados: ${ (err as Error).message }`)
+      }
+      try {
+        const { generated } = await runWeekGeneration();
+        logger.info(`Geração de tarefas automáticas: ${generated} criadas.`);
+      }
+      catch (err) {
+          logger.error('Erro ao carregar a planilha na geração de tarefas automáticas.', { error: (err as Error).message});
+      }
+    },
+    { timezone: env.DEFAULT_TIMEZONE},
+  );
 }
 
-// Permite rodar manualmente: `npm run send:now`
+// Permite rodar manualmente: npm run send:now
 if (require.main === module) {
   runDailyReminders()
     .then(() => process.exit(0))

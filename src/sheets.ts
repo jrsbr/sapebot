@@ -1,16 +1,25 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade } from './types';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus } from './types';
+import { logger } from './logger';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
 
 export const TAB = {
   pessoas: 'Pessoas',
   tarefas: 'Tarefas',
+  tarefasAuto: 'TarefasAuto',
+  designacoes: 'Designacoes',
+  designado: 'Designado',
   mensagens: 'Mensagens',
   config: 'Config',
 } as const;
+
+const PESSOAS_HEADER = [
+  'person_id', 'nome', 'whatsapp_e164', 'ativo', 'opt_in', 'timezone',
+  'observacoes', 'ferias',
+]; 
 
 const TASK_HEADER = [
   'task_id', 'person_id', 'descricao', 'data', 'status', 'periodicidade',
@@ -20,6 +29,18 @@ const MSG_HEADER = [
   'message_id', 'timestamp', 'direction', 'person_id', 'whatsapp_e164',
   'body', 'parsed_intent', 'related_task_id', 'status',
 ];
+
+const AUTOTASK_HEADER = [
+  'task_id', 'descricao',
+]
+
+const DESIGNATION_HEADER = [
+  'task_id', 'person_id', 'count',
+]
+
+const DESIGNATED_HEADER = [
+  'data', 'task_id', 'person_id', 'status',
+]
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 const headerCache: Record<string, string[]> = {};
@@ -56,9 +77,32 @@ function boolStr(b: boolean): string {
 }
 function asStatus(v: string): TaskStatus {
   const s = String(v ?? '').trim().toLowerCase();
-  if (s === 'done' || s === 'skipped' || s === 'cancelled') return s;
+  if (s === 'pending' || s === 'done' || s === 'skipped' || s === 'cancelled') return s;
+  if (s !== '') logger.warn(`status inválido: "${v}", assumindo pending`);
   return 'pending';
 }
+function asAutoStatus(v: string): AutoTaskStatus {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'done') return 'done';
+  if (s === 'missed') return 'missed';
+  if (s === 'pending') return 'pending';
+  if (s !== '') logger.warn(`status auto inválido: "${v}", assumindo pending`);
+  return 'pending';
+}
+
+function personToValues(p: Person): Record<string, string> {
+  return { 
+    person_id: p.person_id,
+    nome: p.nome,
+    whatsapp_e164: p.whatsapp_e164,
+    ativo: boolStr(p.ativo),
+    opt_in: boolStr(p.opt_in),
+    timezone: p.timezone,
+    observacoes: p.observacoes,
+    ferias: boolStr(p.ferias),
+  }
+}
+
 function asPeriod(v: string): Periodicidade {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === 'weekly' || s === 'once') return s;
@@ -92,6 +136,30 @@ function msgToValues(m: MessageRow): Record<string, string> {
     parsed_intent: m.parsed_intent,
     related_task_id: m.related_task_id,
     status: m.status,
+  };
+}
+
+function autoTaskToValues(t: AutoTask): Record<string, string> {
+  return {
+    task_id: t.task_id,
+    descricao: t.descricao,
+  };
+}
+
+function designationToValues(d: Designation): Record<string, string> {
+  return  {
+    task_id: d.task_id,
+    person_id: d.person_id,
+    count: String(d.count),
+  };
+}
+
+function designatedToValues(d: Designated): Record<string, string> {
+  return {
+    data: d.data,
+    task_id: d.task_id,
+    person_id: d.person_id,
+    status: d.status,
   };
 }
 
@@ -176,6 +244,7 @@ export async function loadPeople(): Promise<Person[]> {
       opt_in: toBool(r.values['opt_in']),
       timezone: (r.values['timezone'] ?? '').trim(),
       observacoes: r.values['observacoes'] ?? '',
+      ferias: toBool(r.values['ferias']),
     }));
 }
 
@@ -228,21 +297,70 @@ export async function loadMessages(): Promise<MessageRow[]> {
   }));
 }
 
+export async function loadAutoTasks(): Promise<AutoTask[]> {
+  const { header, rows } = await loadTable(TAB.tarefasAuto);
+  headerCache[TAB.tarefasAuto] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    task_id: r.values['task_id'] ?? '',
+    descricao: r.values['descricao'] ?? '',
+  }))
+  .filter((r) => ((r.task_id ?? '').trim() !== ''));
+}
+
+export async function loadDesignation(): Promise<Designation[]> {
+  const { header, rows } = await loadTable(TAB.designacoes);
+  headerCache[TAB.designacoes] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    task_id: r.values['task_id'] ?? '',
+    person_id: r.values['person_id'] ?? '',
+    count: parseInt(r.values['count'] ?? '0', 10),
+  }))
+  .filter((r) => ((r.task_id ?? '').trim() !== ''));
+}
+
+export async function loadDesignated(): Promise<Designated[]> {
+  const { header, rows } = await loadTable(TAB.designado);
+  headerCache[TAB.designado] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    data: r.values['data'] ?? '',
+    task_id: r.values['task_id'] ?? '',
+    person_id: r.values['person_id'] ?? '',
+    status: asAutoStatus(r.values['status']),
+  }))
+  .filter((r) => ((r.task_id ?? '').trim() !== ''))
+}
+
 // ===== Writers tipados =====
 
-export async function saveTask(task: Task): Promise<void> {
+export async function saveTask(
+  task: Task
+): Promise<void> {
   const header = ensureHeader(TAB.tarefas, TASK_HEADER);
   await writeRow(TAB.tarefas, header, task.__row, taskToValues(task));
 }
 
-export async function saveTasks(tasks: Task[]): Promise<void> {
+export async function saveTasks(
+  tasks: Task[]
+): Promise<void> {
   if (tasks.length === 0) return;
   const header = ensureHeader(TAB.tarefas, TASK_HEADER);
   const items = tasks.map((t) => ({ rowNumber: t.__row, values: taskToValues(t) }));
   await batchWriteRows(TAB.tarefas, header, items);
 }
 
-export async function appendMessage(msg: MessageRow): Promise<void> {
+export async function savePerson(
+  person: Person
+): Promise<void> {
+  const header = ensureHeader(TAB.pessoas, PESSOAS_HEADER);
+  await writeRow(TAB.pessoas, header, person.__row, personToValues(person));
+}
+
+export async function appendMessage(
+  msg: MessageRow
+): Promise<void> {
   const header = ensureHeader(TAB.mensagens, MSG_HEADER);
   const client = getClient();
   await client.spreadsheets.values.append({
@@ -254,7 +372,9 @@ export async function appendMessage(msg: MessageRow): Promise<void> {
   });
 }
 
-export async function appendMessages(msgs: MessageRow[]): Promise<void> {
+export async function appendMessages(
+  msgs: MessageRow[]
+): Promise<void> {
   if (msgs.length === 0) return;
   const header = ensureHeader(TAB.mensagens, MSG_HEADER);
   const client = getClient();
@@ -266,6 +386,54 @@ export async function appendMessages(msgs: MessageRow[]): Promise<void> {
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values },
   });
+}
+
+export async function appendDesignated(d: Designated): Promise<void> {
+  const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
+  const client = getClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.designado}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [header.map((h) => designatedToValues(d)[h] ?? '')] },
+  });
+}
+
+export async function appendDesignateds(ds: Designated[]): Promise<void> {
+  if (ds.length === 0) return;
+  const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
+  const client = getClient();
+  const values = ds.map((d) => header.map((h) => designatedToValues(d)[h] ?? ''));
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.designado}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values },
+  });
+}
+
+export async function saveAutoTask(
+  autoTask: AutoTask,
+): Promise<void> {
+  const header = ensureHeader(TAB.tarefasAuto, AUTOTASK_HEADER);
+  await writeRow(TAB.tarefasAuto, header, autoTask.__row, autoTaskToValues(autoTask));
+}
+
+export async function saveDesignation(
+  designation: Designation,
+): Promise<void> {
+  const header = ensureHeader(TAB.designacoes, DESIGNATION_HEADER);
+  await writeRow(TAB.designacoes, header, designation.__row, designationToValues(designation));
+}
+
+export async function saveDesignated(d: Designated): Promise<void> {
+  if (d.__row === undefined) {
+    throw new Error('saveDesignated requer __row (designação já persistida)');
+  }
+  const header = ensureHeader(TAB.designado, DESIGNATED_HEADER);
+  await writeRow(TAB.designado, header, d.__row, designatedToValues(d));
 }
 
 // ===== Suporte ao CSV (backup/edição offline) =====
@@ -315,50 +483,6 @@ export async function appendTask(task: Task): Promise<void> {
   });
 }
 
-export async function pruneOldMessages(hours = 48): Promise<number> {
-  const matrix = await dumpTab(TAB.mensagens);
-  if (matrix.length <= 1) return 0; // só cabeçalho (ou vazia)
-
-  const header = matrix[0];
-  const tsIdx = header.indexOf('timestamp');
-  if (tsIdx === -1) return 0;
-
-  const cutoff = Date.now() - hours * 60 * 60 * 1000;
-  const kept = matrix.slice(1).filter((row) => {
-    const t = Date.parse(row[tsIdx] ?? '');
-    if (Number.isNaN(t)) return true; // sem timestamp válido: não apaga, por segurança
-    return t >= cutoff;
-  });
-
-  const removed = matrix.length - 1 - kept.length;
-  if (removed > 0) await overwriteTab(TAB.mensagens, [header, ...kept]);
-  return removed;
-}
-
-export async function purgeOldDoneOnceTasks(days = 14): Promise<number> {
-  const matrix = await dumpTab(TAB.tarefas);
-  if (matrix.length <= 1) return 0;
-  const header = matrix[0];
-  const perIdx = header.indexOf('periodicidade');
-  const stIdx = header.indexOf('status');
-  const compIdx = header.indexOf('completed_at');
-  if (perIdx === -1 || stIdx === -1 || compIdx === -1) return 0;
-
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const kept = matrix.slice(1).filter((row) => {
-    const per = String(row[perIdx] ?? '').trim().toLowerCase();
-    const st = String(row[stIdx] ?? '').trim().toLowerCase();
-    if (per !== 'once' || st !== 'done') return true; // só mexe em once+done
-    const t = Date.parse(row[compIdx] ?? '');
-    if (Number.isNaN(t)) return true; // sem data válida: não apaga, por segurança
-    return t >= cutoff; // mantém se concluída há menos de `days` dias
-  });
-
-  const removed = matrix.length - 1 - kept.length;
-  if (removed > 0) await overwriteTab(TAB.tarefas, [header, ...kept]);
-  return removed;
-}
-
 // Remove uma tarefa pelo task_id, reescrevendo a aba. Retorna true se removeu.
 export async function deleteTaskById(taskId: string): Promise<boolean> {
   const matrix = await dumpTab(TAB.tarefas);
@@ -370,4 +494,47 @@ export async function deleteTaskById(taskId: string): Promise<boolean> {
   if (kept.length === matrix.length - 1) return false; // nada removido
   await overwriteTab(TAB.tarefas, [header, ...kept]);
   return true;
+}
+
+// Nova forma de deletar atômico que evita perda de dados
+const sheetIdCache: Record<string, number> = {};
+
+async function getSheetId(tab: string): Promise<number> {
+  if (sheetIdCache[tab] !== undefined) return sheetIdCache[tab];
+  const client = getClient();
+  const res = await client.spreadsheets.get({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    fields: 'sheets.properties', // sem isso a resposta traria a planilha inteira
+  });
+  for (const s of res.data.sheets ?? []) {
+    const p = s.properties;
+    if (p?.title && p.sheetId != null) sheetIdCache[p.title] = p.sheetId;
+  }
+  const id = sheetIdCache[tab];
+  if (id === undefined) throw new Error(`Aba "${tab}" não encontrada na planilha`);
+  return id;
+}
+
+export async function deleteRows(tab: string, rowNumbers: number[]): Promise<void> {
+  if (rowNumbers.length === 0) return;
+  if (rowNumbers.some((r) => r <= 1)) {
+    throw new Error(`deleteRows: linha inválida (${rowNumbers}); a linha 1 é o header`);
+  }
+  const sheetId = await getSheetId(tab);
+  const rows = [...new Set(rowNumbers)].sort((a, b) => b - a);
+  const requests = rows.map((row) => ({
+    deleteDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: row - 1,
+        endIndex: row,
+      },
+    },
+  }));
+  const client = getClient();
+  await client.spreadsheets.batchUpdate({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    requestBody: { requests },
+  });
 }

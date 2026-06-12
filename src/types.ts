@@ -2,6 +2,8 @@
 
 export type TaskStatus = 'pending' | 'done' | 'skipped' | 'cancelled';
 export type Periodicidade = 'daily' | 'weekly' | 'once';
+export type AutoTaskStatus = 'done' | 'missed' | 'pending';
+export type TaskKind = 'normal' | 'auto';
 
 export interface Person {
   __row: number;
@@ -12,6 +14,7 @@ export interface Person {
   opt_in: boolean;
   timezone: string;
   observacoes: string;
+  ferias: boolean;
 }
 
 export interface Task {
@@ -58,4 +61,56 @@ export interface IncomingMessage {
   id: string;
   type: string;
   text?: { body: string };
+}
+
+export interface AutoTask {
+  __row: number;
+  task_id: string;
+  descricao: string;
+}
+
+export interface Designation {
+  __row: number;
+  task_id: string;
+  person_id: string;
+  count: number;
+}
+
+export interface Designated {
+  __row?: number;
+  data: string;
+  task_id: string;
+  person_id: string;
+  status: AutoTaskStatus;
+}
+
+export interface GenericTaskBase {
+  __row?: number,
+  task_id: string;
+  descricao: string;
+  data: string;
+  person_id: string;
+}
+export type GenericTask =
+| (GenericTaskBase & { kind: 'normal'; status: TaskStatus })
+| (GenericTaskBase & { kind: 'auto'; status: AutoTaskStatus });
+
+export type Intent =
+  | { type: 'done'; indices?: number[]; query?: string }
+  | { type: 'skip'; indices?: number[]; query?: string }
+  | { type: 'status' }
+  | { type: 'help' }
+  | { type: 'unknown'; raw: string }
+  | { type: 'admin'; raw: string }
+  | { type: 'ferias_on' }
+  | { type: 'ferias_on_confirm' }
+  | { type: 'ferias_off' }
+  | { type: 'ferias_off_confirm' };
+
+export interface ResolveResult {
+  targets: GenericTask[];
+  invalidNumbers: number[];
+  ambiguous: GenericTask[];
+  markedAll: boolean;
+  emptyList: boolean;
 }
