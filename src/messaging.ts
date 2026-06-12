@@ -1,4 +1,4 @@
-import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask } from './types';
+import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated } from './types';
 import { nowIso, isoToLocalDate } from './time';
 
 // ===== Formatação de mensagens =====
@@ -116,4 +116,18 @@ export function alreadyRemindedToday(
       m.related_task_id === taskKey &&
       isoToLocalDate(m.timestamp, tz) === todayLocal,
   );
+}
+
+export function formatMissedReport(
+  missed: Designated[], 
+  people: Person[], 
+  autoTasks: AutoTask[],
+): string {
+  if (missed.length === 0) return 'Nenhuma tarefa automática perdida nos últimos 7 dias.';
+  const nameFromPersonId = (pId: string) => people.find((p) => p.person_id === pId)?.nome || pId;
+  const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
+  return [
+    `Aqui está a lista de todas as tarefas não feitas nos últimos 7 dias:`, 
+    '',
+    missed.map((m, i) => `${i + 1}. ${m.data} - ${descFromTaskId(m.task_id)} - ${nameFromPersonId(m.person_id)}`).join('\n')].join('\n');
 }
