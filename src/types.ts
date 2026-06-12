@@ -105,7 +105,8 @@ export type Intent =
   | { type: 'ferias_on' }
   | { type: 'ferias_on_confirm' }
   | { type: 'ferias_off' }
-  | { type: 'ferias_off_confirm' };
+  | { type: 'ferias_off_confirm' }
+  | { type: 'calendar'};
 
 export interface ResolveResult {
   targets: GenericTask[];
