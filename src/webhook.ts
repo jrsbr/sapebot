@@ -5,7 +5,9 @@ import { env } from './config';
 import { logger } from './logger';
 import { nowIso, localDate } from './time';
 import {
-  loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated
+  loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated,
+  deleteRows, TAB,
+  savePerson
 } from './sheets';
 import { parseMessage } from './parser';
 import {
@@ -17,8 +19,9 @@ import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboun
  } from './messaging';
 import { sendText } from './whatsapp';
 import { buildCombinedList, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
+import { runWeekGeneration } from './scheduler';
 import { logicalDate } from './time';
-import { getPendingAutoForToday } from './autotask';
+import { getPendingAutoForToday, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask } from './types'
 
 export const webhookRouter = Router();
@@ -216,12 +219,17 @@ async function handleOneMessage(
     }
 
     case 'ferias_on': {
-      reply = handleFerias(person);
+      reply = handleFeriasOn(person);
       break;
     }
     
     case 'ferias_off': {
       reply = handleFeriasOff(person);
+      break;
+    }
+
+    case 'ferias_on_confirm': {
+      reply = await handleFeriasOnConfirm(person, designated);
       break;
     }
 
@@ -511,7 +519,7 @@ function handleSkip(
   return { reply: parts.join('\n\n'), relatedKey };
 }
 
-function handleFerias(
+function handleFeriasOn(
   person: Person
 ): string {
   if (person.ferias === true) return `Você já está de férias. Para sair de férias digite "voltar".`;
@@ -521,6 +529,29 @@ function handleFerias(
 function handleFeriasOff(
   person: Person
 ): string {
-  if (person.ferias === true) return `Você não está de férias. Para entrar de férias digite "ferias".`;
+  if (person.ferias === false) return `Você não está de férias. Para entrar de férias digite "ferias".`;
   return 'Para confirmar o término de suas férias, digite "confirmar voltar". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje voltar de férias, basta ignorar essa mensagem.';
+}
+
+async function handleFeriasOnConfirm(
+  person: Person,
+  designated: Designated[],
+): Promise<string> {
+    const logicalToday = logicalDate(env.DEFAULT_TIMEZONE);
+    const pendingToDelete = vacationPendingToDelete(designated, person.person_id, logicalToday);
+    const rowsToDelete: number[] = [];
+    for (const p of pendingToDelete) {
+      if (p.__row !== undefined) rowsToDelete.push(p.__row);
+    }
+
+    try {
+      person.ferias = true;
+      await savePerson(person);
+      await deleteRows(TAB.designado, rowsToDelete);
+      await runWeekGeneration();
+    } catch (err) {
+      logger.error(`Ocorreu um erro ao ${person.person_id} tentar entrar de férias.`, {error : (err as Error).message});
+      return 'Ocorreu um erro ao tentar entrar de férias. Digite "confirmar ferias" novamente. Caso ocorra um erro novamente, fale com o Pituxo para ajuda.';
+    }
+    return 'Você está oficialmente de férias! Vai aproveitar a vida e não esqueça de voltar de férias quando voltar à Sapecasa. Caso você tenha feito isso por engano, por favor digite "confirmar voltar" e contate o Pituxo.';
 }
