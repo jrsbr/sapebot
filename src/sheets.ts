@@ -77,7 +77,7 @@ function boolStr(b: boolean): string {
 }
 function asStatus(v: string): TaskStatus {
   const s = String(v ?? '').trim().toLowerCase();
-  if (s === 'done' || s === 'skipped' || s === 'cancelled') return s;
+  if (s === 'pending' || s === 'done' || s === 'skipped' || s === 'cancelled') return s;
   if (s !== '') logger.warn(`status inválido: "${v}", assumindo pending`);
   return 'pending';
 }
