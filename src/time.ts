@@ -51,3 +51,9 @@ export function addDays(
   d.setUTCDate(d.getUTCDate() + days);      
   return d.toISOString().slice(0, 10);   
 }
+
+export function weekdayName(ymd: string): string {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', timeZone: 'UTC' }).format(d);
+}
