@@ -47,6 +47,8 @@ export function formatHelpText(): string {
     '- "pular 1" → pula a tarefa 1 só por hoje',
     '- "status" → mostra o que ainda falta hoje',
     '- "ajuda" → mostra esta mensagem',
+    '- "ferias" → entra de férias',
+    '- "voltar ferias" → volta de férias',
   ].join('\n');
 }
 
