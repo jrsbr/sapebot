@@ -15,6 +15,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "send:now": "tsx src/scheduler.ts",
+    "smoke": "tsx src/smoke.ts",
     "csv:export": "tsx src/csv.ts export",
     "csv:import": "tsx src/csv.ts import"
   },
