@@ -57,3 +57,12 @@ export function weekdayName(ymd: string): string {
   if (Number.isNaN(d.getTime())) return '';
   return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', timeZone: 'UTC' }).format(d);
 }
+
+export function localHour(tz: string, date: Date = new Date()): number {
+  const s = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    hourCycle: 'h23',
+  }).format(date);
+  return parseInt(s, 10);
+}
