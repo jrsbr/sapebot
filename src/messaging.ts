@@ -46,9 +46,10 @@ export function formatHelpText(): string {
     '- "feito lavar louça" → marca pela descrição',
     '- "pular 1" → pula a tarefa 1 só por hoje',
     '- "status" → mostra o que ainda falta hoje',
-    '- "ajuda" → mostra esta mensagem',
+    '- "semana" → gera um calendário das tarefas da sua semana',
     '- "ferias" → entra de férias',
     '- "voltar ferias" → volta de férias',
+    '- "ajuda" → mostra esta mensagem',
   ].join('\n');
 }
 
