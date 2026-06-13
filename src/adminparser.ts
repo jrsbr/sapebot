@@ -37,7 +37,7 @@ const SPECS: Record<string, FlagSpec> = {
 
 export function tokenizeAdmin (
     raw: string,
-): { tokens: string[] } | { error: 'unclosed_quote'} {
+): { tokens: string[] } | { error: AdminError} {
     const tokens: string[] = [];
     let currentToken = "";
     let inQuotes = false;
@@ -76,7 +76,7 @@ export function extractFlags(
 ): { positionals: string[], flags: Map<string, string | true>} | { error: AdminError } {
     const positionals: string[] = [];
     const flags = new Map<string, string | true>();
-    for (let i = 2 ; i < tokens.length ; i ++) {
+    for (let i = 0 ; i < tokens.length ; i ++) {
         const token = tokens[i];
         const flag = spec[token];
         if (flag){

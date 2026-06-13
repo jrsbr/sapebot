@@ -9,3 +9,6 @@ csv-export/
 sapebot-14c043523c39.json
 src/smoke.ts
 tests/
+/.codegraph
+/.claude
+.gitignore
