@@ -1,6 +1,8 @@
 import { report } from "process";
 import { FlagSpec } from "./types";
 
+type AdminError = 'unclosed_quote' | 'unknown_flag' | 'missing_value';
+
 const ADD_FLAGS: FlagSpec = {
     '-o': { hasValue: false },
     '-d': { hasValue: false },
@@ -71,6 +73,25 @@ export function tokenizeAdmin (
 export function extractFlags(
     tokens: string[],
     spec: FlagSpec,
-): { positionals: string[], flags: Map<string, string | true>} | { error: string } {
-
+): { positionals: string[], flags: Map<string, string | true>} | { error: AdminError } {
+    const positionals: string[] = [];
+    const flags = new Map<string, string | true>();
+    for (let i = 2 ; i < tokens.length ; i ++) {
+        const token = tokens[i];
+        const flag = spec[token];
+        if (flag){
+            if (flag.hasValue) {
+                const value = tokens[i + 1];
+                if (value === undefined || value.startsWith('-')) return { error: 'missing_value' }; 
+                flags.set(token, value);
+                i++;    
+                continue;
+            }
+            flags.set(token, true);
+            continue;
+        }
+        if (token.startsWith('-')) return { error: 'unknown_flag' };
+        positionals.push(token);
+    }
+    return { positionals, flags };
 }
