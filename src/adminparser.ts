@@ -134,5 +134,40 @@ export function parseAdminCommand(
         return { sub: 'add', pessoa, descricao, periodicidade, grupo, data };
     }
 
+    if (sub === 'remove') {
+        const descricao = flags.get('-m');
+        if (typeof descricao !== 'string') return { error: 'missing_description' };
+
+        const pessoaValue = flags.get('-p');
+        const grupoValue = flags.get('-g');
+        const hasPessoa = typeof pessoaValue === 'string';
+        const hasGrupo = typeof grupoValue === 'string';
+        if (hasPessoa && hasGrupo) return { error: 'target_conflict' };
+
+        if (hasPessoa) return { sub: 'remove', targetKind: 'person', target: pessoaValue, descricao };
+        if (hasGrupo) return { sub: 'remove', targetKind: 'group', target: grupoValue, descricao };
+
+        return { error: 'missing_target' };
+    }
+
+    if (sub === 'list') {
+        const pessoaValue = flags.get('-p');
+        const grupoValue = flags.get('-g');
+        const hasPessoa = typeof pessoaValue === 'string';
+        const hasGrupo = typeof grupoValue === 'string';
+        if (hasPessoa && hasGrupo) return { error: 'target_conflict' };
+
+        if (hasPessoa) return { sub: 'list', pessoa: pessoaValue };
+        if (hasGrupo) return { sub: 'list', grupo: grupoValue };
+        return { sub: 'list' };
+    }
+
+    if (sub === 'report') { 
+        const pessoaValue = flags.get('-p');
+        
+        if (typeof pessoaValue === 'string') return { sub: 'report', pessoa: pessoaValue };
+        return { sub: 'report'};
+    }
+
     return { error: 'unknown_subcommand' };
 }
