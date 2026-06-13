@@ -1,3 +1,38 @@
+import { report } from "process";
+import { FlagSpec } from "./types";
+
+const ADD_FLAGS: FlagSpec = {
+    '-o': { hasValue: false },
+    '-d': { hasValue: false },
+    '-w': { hasValue: false },
+    '-p': { hasValue: true },
+    '-g': { hasValue: true },
+    '-t': { hasValue: true },
+    '-m': { hasValue: true },
+}
+
+const REMOVE_FLAGS: FlagSpec = {
+    '-g': { hasValue: true },
+    '-p': { hasValue: true },
+    '-m': { hasValue: true },
+}
+
+const LIST_FLAGS: FlagSpec = {
+    '-g': { hasValue: true },
+    '-p': { hasValue: true },
+}
+
+const REPORT_FLAGS: FlagSpec = {
+    '-p': { hasValue: true },
+}
+
+const SPECS: Record<string, FlagSpec> = {
+    add: ADD_FLAGS,
+    remove: REMOVE_FLAGS,
+    list: LIST_FLAGS,
+    report: REPORT_FLAGS,
+}
+
 export function tokenizeAdmin (
     raw: string,
 ): { tokens: string[] } | { error: 'unclosed_quote'} {
@@ -31,4 +66,11 @@ export function tokenizeAdmin (
     if (currentToken.length > 0) pushToken();
 
     return inQuotes ? { error: 'unclosed_quote'} : { tokens };
+}
+
+export function extractFlags(
+    tokens: string[],
+    spec: FlagSpec,
+): { positionals: string[], flags: Map<string, string | true>} | { error: string } {
+
 }
