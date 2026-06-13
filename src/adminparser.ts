@@ -1,4 +1,3 @@
-import { report } from "process";
 import { FlagSpec } from "./types";
 
 type AdminError = 'unclosed_quote' | 'unknown_flag' | 'missing_value';
