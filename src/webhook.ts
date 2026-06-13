@@ -185,7 +185,6 @@ async function handleOneMessage(
 
   const intent = parseMessage(text);
   inboundRow.parsed_intent = intent.type;
-  if (intent.type === 'admin') inboundRow.body = 'admin [REDACTED]';
 
   const tz = person.timezone || env.DEFAULT_TIMEZONE;
   const today = localDate(tz);
