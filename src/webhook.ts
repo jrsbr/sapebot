@@ -53,7 +53,10 @@ webhookRouter.post('/webhook', (req: Request, res: Response) => {
 });
 
 function verifySignature(req: Request): boolean {
-  if (!env.META_APP_SECRET) return true; // não configurado -> não valida
+  if (!env.META_APP_SECRET) {
+    logger.error('META_APP_SECRET não configurado; rejeitando webhook.');
+    return false;
+  }
   const signature = req.header('x-hub-signature-256');
   const raw = (req as any).rawBody as Buffer | undefined;
   if (!signature || !raw) return false;
