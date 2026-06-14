@@ -38,6 +38,9 @@ export function tokenizeAdmin (
     const tokens: string[] = [];
     let currentToken = "";
     let inQuotes = false;
+    const normalized = raw
+        .replace(/[“”„‟]/g, '"')
+        .replace(/[‘’‚‛]/g, "'");
     const pushToken = () => {
         if (currentToken.length > 0) {
             tokens.push(currentToken);
@@ -45,7 +48,7 @@ export function tokenizeAdmin (
         }
     };
 
-    for (const c of raw) {
+    for (const c of normalized) {
         if (c === '"') {
             pushToken();
             inQuotes = !inQuotes;
