@@ -15,13 +15,14 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage
  } from './messaging';
 import { sendText } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
-import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask } from './types'
+import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, AdminAdd, AdminRemove, AdminList, AdminReport } from './types'
+import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 
 export const webhookRouter = Router();
 
@@ -268,34 +269,40 @@ async function handleOneMessage(
         reply = 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
         break;
       }
-      const tk = intent.raw.trim().split(/\s+/);
-      if (!env.ADMIN_PASSWORD || tk[1] !== env.ADMIN_PASSWORD) {
-        reply = 'Senha de admin incorreta.';
+
+      const tokens = tokenizeAdmin(intent.raw);
+      if ('error' in tokens) {
+        reply = adminErrorMessage(tokens.error); 
         break;
       }
-      const sub = (tk[2] ?? '').toLowerCase();
-
-      if (sub === 'add') {
-        reply = await handleAdminAdd(tk, people, tasks, today);
-        break;
-      }
-
-      if (sub === 'remove') {
-        reply = await handleAdminRemove(tk, people, tasks);
+      const command = parseAdminCommand(tokens.tokens);
+      
+      if ('error' in command) {
+        reply = adminErrorMessage(command.error);
         break;
       }
 
-      if (sub === 'list') {
-        reply = handleAdminList(tk, people, tasks);
-        break;
-      }
+      switch (command.sub) {
+        case 'add': {
+          reply = await handleAdminAdd(command, people, tasks, today);
+          break;
+        }
 
-      if (sub === 'report') {
-        reply = handleAdminReport(people, autoTask, designated, logicalToday);
-        break;
-      }
+        case 'remove': {
+          reply = await handleAdminRemove(command, people, tasks);
+          break;
+        }
 
-      reply = 'Subcomandos: add, remove, list, report.';
+        case 'list': {
+          reply = handleAdminList(command, people, tasks);
+          break;
+        }
+        
+        case 'report': {
+          reply = handleAdminReport(command, people, autoTask, designated, logicalToday);
+          break;
+        }
+      }
       break;
     }
 
@@ -327,18 +334,14 @@ async function handleOneMessage(
 }
 
 async function handleAdminAdd(
-  tokens: string[],
+  command: AdminAdd,
   people: Person[],
   tasks: Task[],
   today: string,
 ): Promise<string> {
-  let reply: string;
-  const targetNameOrId = tokens[3] ?? '';
-  const per = (tokens[4] ?? '').toLowerCase();
-  const descricao = tokens.slice(5).join(' ');
-  if (!targetNameOrId || !descricao || !['daily', 'weekly', 'once'].includes(per)) {
-    return 'Uso: admin SENHA add <person_id> <daily|weekly|once> <descrição>';
-  }
+  const targetNameOrId = command.pessoa;
+  const per = command.periodicidade
+  const descricao = command.descricao;
   const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
   if (pAmbiguous.length > 0) {
     return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
@@ -354,7 +357,8 @@ async function handleAdminAdd(
   const newId = 't' + String(maxNum + 1).padStart(3, '0');
   const newTask: Task = {
     __row: 0, task_id: newId, person_id: targetId, descricao,
-    data: today, status: 'pending', periodicidade: per as any,
+    data: command.data || today, 
+    status: 'pending', periodicidade: per as any,
     cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
   };
   try {
@@ -366,63 +370,64 @@ async function handleAdminAdd(
 }
 
 async function handleAdminRemove(
-  tokens: string[],
+  command: AdminRemove,
   people: Person[],
   tasks: Task[],
 ): Promise<string>{
-  const targetNameOrId = tokens[3] ?? '';
-  const ref = tokens.slice(4).join(' ');
-  let reply: string;
-  if (!targetNameOrId || !ref) {
-    return 'Uso: admin SENHA remove <person_id> <task_id ou descrição>';
-  }
-  const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
-  if (pAmbiguous.length > 0) {
-    return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
-  }
-  if (!pMatch) {
-    return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
-  }
-  const targetId = pMatch.person_id;
-  const targetName = pMatch.nome;
-  const personTasks = tasks.filter((t) => t.person_id === targetId);
-  if (personTasks.length === 0) {
-    return `Nenhuma tarefa encontrada para ${targetName}.`;
-  }
-  const personGeneric = personTasks.map(taskToGeneric);
-  let target = personTasks.find((t) => t.task_id === ref);
-  if (!target) {
-    const { match, ambiguous } = findTaskByDescription(personGeneric, ref);
-    if (ambiguous.length > 0) {
-      return [
-        'Mais de uma tarefa parecida:', '',
-        formatTaskListMultiline(ambiguous), '',
-        'Remova pelo task_id para evitar ambiguidade.',
-      ].join('\n');
+  const targetNameOrId = command.target;
+  const ref = command.descricao;
+
+  if (command.targetKind === 'person') {
+    const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, targetNameOrId);
+    if (pAmbiguous.length > 0) {
+      return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
     }
-    if (match) {
-      target = personTasks.find((t) => t.task_id === match.task_id);
+    if (!pMatch) {
+      return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
+    }
+    const targetId = pMatch.person_id;
+    const targetName = pMatch.nome;
+    const personTasks = tasks.filter((t) => t.person_id === targetId);
+    if (personTasks.length === 0) {
+      return `Nenhuma tarefa encontrada para ${targetName}.`;
+    }
+    const personGeneric = personTasks.map(taskToGeneric);
+    let target = personTasks.find((t) => t.task_id === ref);
+    if (!target) {
+      const { match, ambiguous } = findTaskByDescription(personGeneric, ref);
+      if (ambiguous.length > 0) {
+        return [
+          'Mais de uma tarefa parecida:', '',
+          formatTaskListMultiline(ambiguous), '',
+          'Remova pelo task_id para evitar ambiguidade.',
+        ].join('\n');
+      }
+      if (match) {
+        target = personTasks.find((t) => t.task_id === match.task_id);
+      }
+    }
+    if (!target) {
+      return `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
+    }
+    try {
+    await deleteTaskById(target.task_id);
+    return `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+    } catch {
+    return 'Falha ao remover a tarefa. Veja os logs.';
     }
   }
-  if (!target) {
-    return `Não encontrei a tarefa "${ref}" para ${targetNameOrId}.`;
-  }
-  try {
-  await deleteTaskById(target.task_id);
-  return `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
-  } catch {
-  return 'Falha ao remover a tarefa. Veja os logs.';
-  }
+  return 'Remoção por grupo ainda não suportado.';
 }
 
 function handleAdminList(
-  tokens: string[],
+  command: AdminList,
   people: Person[],
   tasks: Task[],
 ): string{
   let nameOf = '';
   let idOf = '';
-  const targetNameOrId = tokens[3] ?? '';
+  if (command.grupo) return 'Listagem por grupo ainda não suportado.';
+  const targetNameOrId = command.pessoa ?? '';
   const { match, ambiguous } = findPersonByIdOrName(people, targetNameOrId);
   const nameFromPid = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
   if (targetNameOrId) {
@@ -604,12 +609,23 @@ async function handleFeriasOffConfirm(
 }
 
 function handleAdminReport(
+  command: AdminReport,
   people: Person[], 
   autoTask: AutoTask[], 
   designated: Designated[], 
   logicalToday: string,
 ): string {
   const cut = addDays(logicalToday, -7);
-  const missedAutoTask = missedInWindow(designated, cut);
+  let missedAutoTask = missedInWindow(designated, cut);
+  if (command.pessoa) {
+    const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
+    if (ambiguous.length > 0) {
+      return `O nome "${command.pessoa}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+    }
+    if (!match) {
+      return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
+    }
+    missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
+  }
   return formatMissedReport(missedAutoTask, people, autoTask);
 }
