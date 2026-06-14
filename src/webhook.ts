@@ -362,7 +362,7 @@ async function handleAdminAdd(
     __row: 0, task_id: newId, person_id: targetId, descricao,
     data: command.data || today, 
     status: 'pending', periodicidade: per as any,
-    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
+    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '', grupo: command.grupo,
   };
   try {
     await appendTask(newTask);
