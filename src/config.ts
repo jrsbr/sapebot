@@ -35,6 +35,7 @@ const schema = z.object({
   // ===== Templates aprovados na Meta =====
   WHATSAPP_TEMPLATE_TASKS: z.string().default('lembrete_tarefas'),
   WHATSAPP_TEMPLATE_NO_TASKS: z.string().default('sem_tarefas'),
+  WHATSAPP_TEMPLATE_TASK_DONE_BY: z.string().default('tarefa_feita_grupo'),
   // Código de idioma dos templates conforme cadastrado na Meta (ex.: pt_BR).
   WHATSAPP_TEMPLATE_LANG: z.string().default('pt_BR'),
 

@@ -24,7 +24,7 @@ const PESSOAS_HEADER = [
 
 const TASK_HEADER = [
   'task_id', 'person_id', 'descricao', 'data', 'status', 'periodicidade',
-  'cobrar', 'last_reminder_at', 'completed_at', 'skip_until', 'observacoes',
+  'cobrar', 'last_reminder_at', 'completed_at', 'skip_until', 'observacoes', 'grupo',
 ];
 const MSG_HEADER = [
   'message_id', 'timestamp', 'direction', 'person_id', 'whatsapp_e164',
@@ -125,6 +125,7 @@ function taskToValues(t: Task): Record<string, string> {
     completed_at: t.completed_at,
     skip_until: t.skip_until,
     observacoes: t.observacoes,
+    grupo: t.grupo,
   };
 }
 
@@ -269,6 +270,7 @@ export async function loadTasks(): Promise<Task[]> {
       completed_at: r.values['completed_at'] ?? '',
       skip_until: (r.values['skip_until'] ?? '').trim(),
       observacoes: r.values['observacoes'] ?? '',
+      grupo: r.values['grupo'] ?? '',
     }));
 }
 

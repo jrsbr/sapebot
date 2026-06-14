@@ -13,11 +13,11 @@ import { parseMessage } from './parser';
 import {
   findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
-  brPhoneKey, findPersonByIdOrName
+  brPhoneKey, findPersonByIdOrName, linkedPendingTasks
 } from './tasks';
 import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage
  } from './messaging';
-import { sendText } from './whatsapp';
+import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
@@ -198,6 +198,7 @@ async function handleOneMessage(
 
   let reply = '';
   let relatedKey = '';
+  let notices: GroupDoneNotice[] = [];
   const changed: Task[] = [];
   const autoChanged: Designated[] = [];
 
@@ -211,7 +212,7 @@ async function handleOneMessage(
       break;
 
     case 'done': {
-      ({ reply, relatedKey } = handleDone(tasks, designated, autoTask, intent, combined, person, today, logicalToday, changed, autoChanged, relatedKey));
+      ({ reply, relatedKey, notices } = handleDone(tasks, designated, autoTask, people, intent, combined, person, today, logicalToday, changed, autoChanged, relatedKey));
       break;
     }
 
@@ -326,9 +327,20 @@ async function handleOneMessage(
       try { 
         await saveDesignated(d);
       } catch (err) {
-        logger.error('Falha ao salvar auto tarefas após comando', { error: (err as Error).message }); 
+        logger.error('Falha ao salvar auto tarefas após comando', { error: (err as Error).message });
       }
     }
+  }
+
+  for (const notice of notices) {
+    if (!notice.person.ativo || !notice.person.opt_in) continue;
+    const result = await sendTemplate(notice.person.whatsapp_e164, env.WHATSAPP_TEMPLATE_TASK_DONE_BY, [
+      { type: 'text', text: notice.person.nome },
+      { type: 'text', text: notice.descricao },
+      { type: 'text', text: notice.doneBy },
+    ]);
+    const logBody = `[template:${env.WHATSAPP_TEMPLATE_TASK_DONE_BY}] nome=${notice.person.nome} tarefa=${notice.descricao} por=${notice.doneBy}`;
+    await safeAppend(buildOutboundRow(notice.person.whatsapp_e164, notice.person.person_id, logBody, 'group_done_notice', '', result));
   }
 
   await safeAppend(inboundRow);
@@ -362,7 +374,7 @@ async function handleAdminAdd(
     __row: 0, task_id: newId, person_id: targetId, descricao,
     data: command.data || today, 
     status: 'pending', periodicidade: per as any,
-    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '',
+    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '', grupo: command.grupo,
   };
   try {
     await appendTask(newTask);
@@ -454,10 +466,17 @@ function handleAdminList(
   .join('\n');
 }
 
+interface GroupDoneNotice {
+  person: Person;
+  descricao: string;
+  doneBy: string;
+}
+
 function handleDone(
   tasks: Task[],
   designated: Designated[],
   autoTasks: AutoTask[],
+  people: Person[],
   intent: Extract<Intent, {type: 'done' | 'skip'}>,
   pending: GenericTask[],
   person: Person,
@@ -466,10 +485,11 @@ function handleDone(
   changed: Task[],
   autoChanged: Designated[],
   relatedKey: string,
-): { reply: string, relatedKey: string } {
+): { reply: string, relatedKey: string, notices: GroupDoneNotice[] } {
+  const notices: GroupDoneNotice[] = [];
   const r = resolveTargets(intent, pending);
   if (r.emptyList) {
-  return { reply: `Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey };
+  return { reply: `Você não tem tarefas pendentes hoje, ${person.nome}.`, relatedKey, notices };
   }
   if (r.ambiguous.length > 0) {
     return {reply: [
@@ -478,10 +498,10 @@ function handleDone(
       formatTaskListMultiline(r.ambiguous),
       '',
       'Responda com o número (ex.: "feito 1").',
-    ].join('\n'), relatedKey};
+    ].join('\n'), relatedKey, notices};
   }
   if (r.targets.length === 0) {
-    return { reply: `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim(), relatedKey };
+    return { reply: `Não encontrei essa tarefa. ${invalidHint(r)} Envie "status" para ver a lista ou "ajuda".`.trim(), relatedKey, notices };
   }
   const stamp = nowIso();
   for (const g of r.targets) {
@@ -490,6 +510,12 @@ function handleDone(
       if (t) {
         markDone(t, stamp);
         changed.push(t);
+        for (const linked of linkedPendingTasks(tasks, t)) {
+          markDone(linked, stamp);
+          changed.push(linked);
+          const owner = people.find((p) => p.person_id === linked.person_id);
+          if (owner) notices.push({ person: owner, descricao: linked.descricao, doneBy: person.nome });
+        }
       }
     } else {
         const d = designated.find((x) => x.__row === g.__row);
@@ -503,7 +529,7 @@ function handleDone(
   const remaining = getPendingTasksForToday(tasks, person.person_id, today);
   const autoRemaining = getPendingAutoForToday(designated, person.person_id, logicalToday);
   const combined = buildCombinedList(remaining, autoRemaining, autoTasks);
-  return { reply: buildDoneReply(r, combined), relatedKey };
+  return { reply: buildDoneReply(r, combined), relatedKey, notices };
 }
 
 function handleSkip(
