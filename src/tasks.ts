@@ -1,17 +1,11 @@
-// Regras de negócio puras (sem I/O), tipos do domínio e formatação de mensagens.
 import { normalizeText } from './parser';
 import { daysBetween } from './time';
 import type { Person, Task } from './types'
-
-
-// ===== Telefone =====
 
 export function onlyDigits(s: string): string {
   return (s ?? '').replace(/\D/g, '');
 }
 
-// Chave canônica para números BR (55 + DDD de 2 + 9 dígitos = 13).
-// Remove o nono dígito quando presente, para casar com/sem o 9.
 export function brPhoneKey(phone: string): string {
   let d = onlyDigits(phone);
   if (d.length === 13 && d.startsWith('55') && d[4] === '9') {
@@ -26,8 +20,6 @@ export function findPersonByPhone(people: Person[], phone: string): Person | und
   return people.find((p) => brPhoneKey(p.whatsapp_e164) === key);
 }
 
-// ===== Seleção de tarefas =====
-
 function isPausedBySkip(task: Task, today: string): boolean {
   if (!task.skip_until) return false;
   // Pausada se skip_until for hoje ou no futuro.
@@ -39,8 +31,6 @@ function isDue(task: Task, today: string): boolean {
   return task.data <= today;
 }
 
-// Lista de tarefas do dia para uma pessoa, ordenada de forma determinística
-// (por task_id) — é o que garante que "feito 1" case com o "1" do lembrete.
 export function getPendingTasksForToday(tasks: Task[], personId: string, today: string): Task[] {
   return tasks
     .filter(
@@ -54,8 +44,6 @@ export function getPendingTasksForToday(tasks: Task[], personId: string, today: 
     .sort((a, b) => a.task_id.localeCompare(b.task_id));
 }
 
-// Virada de recorrentes: tarefas daily/weekly cuja instância ficou no passado
-// voltam para "pending" hoje. Mutaciona os objetos recebidos e retorna os alterados.
 export function rolloverRecurringTasks(tasks: Task[], today: string): Task[] {
   const changed: Task[] = [];
   for (const t of tasks) {
@@ -81,8 +69,6 @@ export function rolloverRecurringTasks(tasks: Task[], today: string): Task[] {
   }
   return changed;
 }
-
-// ===== Atualizações de tarefa =====
 
 export function markDone(task: Task, when: string): Task {
   task.status = 'done';
@@ -159,10 +145,21 @@ export function findPersonByIdOrName(
   return { ambiguous: top };
 }
 
-// ===== Idempotência =====
-
 export function dedupeByRow(tasks: Task[]): Task[] {
   const map = new Map<number, Task>();
   for (const t of tasks) map.set(t.__row, t);
   return [...map.values()];
+}
+
+export function linkedPendingTasks (
+  tasks: Task[],
+  source: Task,
+): Task[] {
+  if (source.grupo === '') return [];
+  const sameGroupTasks = tasks.filter((t) => 
+    t.grupo === source.grupo &&
+    t.status === 'pending'&&
+    t.__row !== source.__row
+  );
+  return sameGroupTasks;
 }
