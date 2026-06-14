@@ -31,6 +31,7 @@ export interface Task {
   completed_at: string;
   skip_until: string;
   observacoes: string;
+  grupo: string;
 }
 
 export interface MessageRow {
