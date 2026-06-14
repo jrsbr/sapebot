@@ -9,7 +9,7 @@ import {
   deleteRows, TAB,
   savePerson, loadGMPhrases
 } from './sheets';
-import { parseMessage } from './parser';
+import { parseMessage, normalizeText } from './parser';
 import {
   findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
@@ -431,7 +431,21 @@ async function handleAdminRemove(
     return 'Falha ao remover a tarefa. Veja os logs.';
     }
   }
-  return 'Remoção por grupo ainda não suportado.';
+  const groupTasks = tasks.filter((t) => t.grupo === targetNameOrId);
+  if (groupTasks.length === 0) {
+    return `Nenhuma tarefa encontrada no grupo "${targetNameOrId}".`;
+  }
+  const q = normalizeText(ref);
+  const toRemove = groupTasks.filter((t) => t.task_id === ref || normalizeText(t.descricao) === q);
+  if (toRemove.length === 0) {
+    return `Não encontrei a tarefa "${ref}" no grupo "${targetNameOrId}".`;
+  }
+  try {
+    for (const t of toRemove) await deleteTaskById(t.task_id);
+    return `Removidas ${toRemove.length} tarefa(s) do grupo "${targetNameOrId}": "${toRemove[0].descricao}".`;
+  } catch {
+    return 'Falha ao remover as tarefas do grupo. Veja os logs.';
+  }
 }
 
 function handleAdminList(
