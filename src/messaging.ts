@@ -45,6 +45,7 @@ export function formatHelpText(): string {
     '- "feito 1,2" → marca as tarefas 1 e 2',
     '- "feito lavar louça" → marca pela descrição',
     '- "pular 1" → pula a tarefa 1 só por hoje',
+    '- "pular lavar louça" → pula pela descrição',
     '- "status" → mostra o que ainda falta hoje',
     '- "semana" → gera um calendário das tarefas da sua semana',
     '- "ferias" → entra de férias',
