@@ -1,28 +1,28 @@
 import { FlagSpec, AdminError, AdminCommand } from "./types";
 
 const ADD_FLAGS: FlagSpec = {
-    '-o': { hasValue: false },
-    '-d': { hasValue: false },
-    '-w': { hasValue: false },
-    '-p': { hasValue: true },
-    '-g': { hasValue: true },
-    '-t': { hasValue: true },
-    '-m': { hasValue: true },
+    '-o': { kind: 'bool' },
+    '-d': { kind: 'bool' },
+    '-w': { kind: 'bool' },
+    '-p': { kind: 'multi' },
+    '-g': { kind: 'value' },
+    '-t': { kind: 'value' },
+    '-m': { kind: 'value' },
 }
 
 const REMOVE_FLAGS: FlagSpec = {
-    '-g': { hasValue: true },
-    '-p': { hasValue: true },
-    '-m': { hasValue: true },
+    '-g': { kind: 'value' },
+    '-p': { kind: 'value' },
+    '-m': { kind: 'value' },
 }
 
 const LIST_FLAGS: FlagSpec = {
-    '-g': { hasValue: true },
-    '-p': { hasValue: true },
+    '-g': { kind: 'value' },
+    '-p': { kind: 'value' },
 }
 
 const REPORT_FLAGS: FlagSpec = {
-    '-p': { hasValue: true },
+    '-p': { kind: 'value' },
 }
 
 const SPECS: Record<string, FlagSpec> = {
@@ -73,21 +73,31 @@ export function tokenizeAdmin (
 export function extractFlags(
     tokens: string[],
     spec: FlagSpec,
-): { positionals: string[], flags: Map<string, string | true>} | { error: AdminError } {
+): { positionals: string[], flags: Map<string, string | true | string[]>} | { error: AdminError } {
     const positionals: string[] = [];
-    const flags = new Map<string, string | true>();
+    const flags = new Map<string, string | true | string[]>();
     for (let i = 0 ; i < tokens.length ; i ++) {
         const token = tokens[i];
         const flag = spec[token];
         if (flag){
-            if (flag.hasValue) {
+            if (flag.kind === 'multi') {
                 const value = tokens[i + 1];
                 if (value === undefined || value.startsWith('-')) return { error: 'missing_value' }; 
-                flags.set(token, value);
+                const existing = flags.get(token);
+                if (Array.isArray(existing)) existing.push(value);
+                else flags.set(token, [value]);
                 i++;    
                 continue;
             }
-            flags.set(token, true);
+            if (flag.kind === 'bool') {
+                flags.set(token, true);
+                continue;
+            }
+            const value = tokens[i + 1];
+            if (value === undefined || value.startsWith('-')) return { error: 'missing_value' }; 
+            if (flags.has(token)) return { error: 'duplicate_flag'};
+            flags.set(token, value);
+            i++;    
             continue;
         }
         if (token.startsWith('-')) return { error: 'unknown_flag' };
