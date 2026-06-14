@@ -134,7 +134,7 @@ export type AdminError =
 
 export interface AdminAdd {
   sub: 'add';
-  pessoa: string;
+  pessoas: string[];
   descricao: string;
   periodicidade: Periodicidade;
   grupo: string;
