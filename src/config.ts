@@ -40,7 +40,6 @@ const schema = z.object({
 
     // ===== Admin via WhatsApp =====
   ADMIN_PHONES: z.string().default(''), // E.164 separados por vírgula
-  ADMIN_PASSWORD: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
