@@ -4,7 +4,7 @@ export type TaskStatus = 'pending' | 'done' | 'skipped' | 'cancelled';
 export type Periodicidade = 'daily' | 'weekly' | 'once';
 export type AutoTaskStatus = 'done' | 'missed' | 'pending';
 export type TaskKind = 'normal' | 'auto';
-export type FlagSpec = Record<string, { hasValue: boolean }>;
+export type FlagSpec = Record<string, { kind: 'bool'| 'value' | 'multi' }>;
 
 export interface Person {
   __row: number;
@@ -129,7 +129,8 @@ export type AdminError =
   | 'target_conflict'
   | 'periodicity_conflict'
   | 'missing_periodicity'
-  | 'invalid_date';
+  | 'invalid_date'
+  | 'duplicate_flag';
 
 export interface AdminAdd {
   sub: 'add';
