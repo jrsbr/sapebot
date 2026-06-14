@@ -1,4 +1,4 @@
-import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated } from './types';
+import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated, AdminError } from './types';
 import { nowIso, isoToLocalDate, weekdayName } from './time';
 
 // ===== Formatação de mensagens =====
@@ -154,4 +154,33 @@ export function formatWeekText(
     `Calendário da Semana:`,
     calendar.map((d) => `- *${weekdayName(d.data)}*: ${d.descricoes.join(', ')}`).join('\n')
   ].join('\n');
+}
+
+export function adminErrorMessage(error: AdminError): string {
+  switch (error) {
+    case 'unclosed_quote':
+      return 'Aspas não fechada. Use aspas duplas em pares. Ex.: admin add -p João -m "lavar a louça" -d';
+    case 'unknown_flag':
+      return 'Flag não reconhecida por esse comando. Ex.: admin add -p João -m "lavar a louça" -d';
+    case 'missing_value':
+      return 'Uma flag ficou sem valor. Ex.: admin add -p João -m "lavar a louça" -d';
+    case 'unknown_subcommand':
+      return 'Subcomando inválido. Use: add, remove, list ou report.';
+    case 'missing_description':
+      return 'Faltou a descrição (-m). Ex.: admin add -p João -m "lavar a louça" -d';
+    case 'missing_target':
+      return 'Faltou o alvo: -p (pessoa) ou -g (grupo). Ex.: admin add -p João -m "lavar a louça" -d';
+    case 'target_conflict':
+      return 'Use só um alvo: -p (pessoa) ou -g (grupo), não os dois.';
+    case 'periodicity_conflict':
+      return 'Escolha só uma periodicidade: -o (uma vez), -w (semanal) ou -d (diária).';
+    case 'missing_periodicity':
+      return 'Faltou a periodicidade: -o (uma vez), -w (semanal) ou -d (diária). Ex.: admin add -p João -m "lavar a louça" -d';
+    case 'invalid_date':
+      return 'Data inválida. Use o formato AAAA-MM-DD. Ex.: -t 2026-06-20';
+    default: {
+      const _exhaustive: never = error;
+      return _exhaustive;
+    }
+  }
 }

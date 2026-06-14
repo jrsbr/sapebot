@@ -12,7 +12,7 @@ const schema = z.object({
   META_PHONE_NUMBER_ID: z.string().min(1, 'META_PHONE_NUMBER_ID é obrigatório'),
   META_VERIFY_TOKEN: z.string().min(1, 'META_VERIFY_TOKEN é obrigatório'),
   // Opcional: usado para validar a assinatura X-Hub-Signature-256 do webhook.
-  META_APP_SECRET: z.string().optional(),
+  META_APP_SECRET: z.string(),
   // Versão da Graph API. Pode mudar com o tempo; veja README.
   GRAPH_API_VERSION: z.string().default('v20.0'),
 
@@ -40,7 +40,6 @@ const schema = z.object({
 
     // ===== Admin via WhatsApp =====
   ADMIN_PHONES: z.string().default(''), // E.164 separados por vírgula
-  ADMIN_PASSWORD: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;

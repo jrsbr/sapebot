@@ -4,6 +4,7 @@ export type TaskStatus = 'pending' | 'done' | 'skipped' | 'cancelled';
 export type Periodicidade = 'daily' | 'weekly' | 'once';
 export type AutoTaskStatus = 'done' | 'missed' | 'pending';
 export type TaskKind = 'normal' | 'auto';
+export type FlagSpec = Record<string, { hasValue: boolean }>;
 
 export interface Person {
   __row: number;
@@ -116,3 +117,44 @@ export interface ResolveResult {
   markedAll: boolean;
   emptyList: boolean;
 }
+
+export type AdminError =
+  | 'unclosed_quote'
+  | 'unknown_flag'
+  | 'missing_value'
+  | 'unknown_subcommand'
+  | 'missing_description'
+  | 'missing_target'
+  | 'target_conflict'
+  | 'periodicity_conflict'
+  | 'missing_periodicity'
+  | 'invalid_date';
+
+export interface AdminAdd {
+  sub: 'add';
+  pessoa: string;
+  descricao: string;
+  periodicidade: Periodicidade;
+  grupo: string;
+  data: string;
+}
+
+export interface AdminRemove {
+  sub: 'remove';
+  targetKind: 'person' | 'group';
+  target: string;
+  descricao: string;
+}
+
+export interface AdminList {
+  sub: 'list';
+  pessoa?: string;
+  grupo?: string;
+}
+
+export interface AdminReport {
+  sub: 'report';
+  pessoa?: string;
+}
+
+export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport;
