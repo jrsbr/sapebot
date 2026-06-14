@@ -132,7 +132,7 @@ Cada flag tem um significado fixo em todos os subcomandos; o valor vem logo apó
 |---|---|
 | `-p <pessoa>` | Pessoa (nome ou `person_id`). |
 | `-m "<descrição>"` | Descrição da tarefa (use aspas se tiver espaços). |
-| `-g <grupo>` | Grupo, para vincular tarefas iguais entre pessoas. |
+| `-g <grupo>` | Grupo: vincula tarefas iguais entre pessoas (em `add`) e seleciona o grupo inteiro (em `remove` e `list`). |
 | `-t <AAAA-MM-DD>` | Data da tarefa. |
 | `-o` / `-w` / `-d` | Periodicidade: uma vez / semanal / diária. |
 
@@ -141,8 +141,8 @@ Subcomandos:
 | Subcomando | Obrigatório | Opcional | O que faz |
 |---|---|---|---|
 | `add` | `-p`, `-m`, uma periodicidade | `-g`, `-t` | Cria uma tarefa para a pessoa. |
-| `remove` | `-m`, `-p` | — | Remove a tarefa indicada da pessoa. |
-| `list` | — | `-p` | Lista as tarefas em aberto (de todos ou de uma pessoa). |
+| `remove` | `-m` e um de `-p` ou `-g` | — | Remove a tarefa de uma pessoa (`-p`) ou de todos no grupo (`-g`). |
+| `list` | — | `-p` ou `-g` | Lista as tarefas em aberto (de todos, de uma pessoa ou de um grupo). |
 | `report` | — | `-p` | Relatório das tarefas da casa que ficaram pendentes nos últimos dias. |
 
 Exemplos:
@@ -152,7 +152,9 @@ admin add -p João -m "lavar a louça" -d
 admin add -p João -m "lavar a louça" -d -g cozinha
 admin add -p Maria -m "tirar o lixo" -w -t 2026-06-20
 admin remove -p João -m "lavar a louça"
+admin remove -g cozinha -m "lavar a louça"
 admin list -p João
+admin list -g cozinha
 admin report
 ```
 

@@ -9,7 +9,7 @@ import {
   deleteRows, TAB,
   savePerson, loadGMPhrases
 } from './sheets';
-import { parseMessage } from './parser';
+import { parseMessage, normalizeText } from './parser';
 import {
   findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
@@ -431,7 +431,21 @@ async function handleAdminRemove(
     return 'Falha ao remover a tarefa. Veja os logs.';
     }
   }
-  return 'Remoção por grupo ainda não suportado.';
+  const groupTasks = tasks.filter((t) => t.grupo === targetNameOrId);
+  if (groupTasks.length === 0) {
+    return `Nenhuma tarefa encontrada no grupo "${targetNameOrId}".`;
+  }
+  const q = normalizeText(ref);
+  const toRemove = groupTasks.filter((t) => t.task_id === ref || normalizeText(t.descricao) === q);
+  if (toRemove.length === 0) {
+    return `Não encontrei a tarefa "${ref}" no grupo "${targetNameOrId}".`;
+  }
+  try {
+    for (const t of toRemove) await deleteTaskById(t.task_id);
+    return `Removidas ${toRemove.length} tarefa(s) do grupo "${targetNameOrId}": "${toRemove[0].descricao}".`;
+  } catch {
+    return 'Falha ao remover as tarefas do grupo. Veja os logs.';
+  }
 }
 
 function handleAdminList(
@@ -439,31 +453,37 @@ function handleAdminList(
   people: Person[],
   tasks: Task[],
 ): string{
-  let nameOf = '';
-  let idOf = '';
-  if (command.grupo) return 'Listagem por grupo ainda não suportado.';
-  const targetNameOrId = command.pessoa ?? '';
-  const { match, ambiguous } = findPersonByIdOrName(people, targetNameOrId);
   const nameFromPid = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
-  if (targetNameOrId) {
-    if (ambiguous.length > 0) return 'Nome ambíguo. Tente digitar mais precisamente ou o pId.';
-    if (!match) return `person_id ou person_name "${targetNameOrId}" não encontrado.`;
-  nameOf = match.nome;
-  idOf = match.person_id;
-  }
   const aberta = (t: Task) => t.status !== 'done';
-  const sel = (targetNameOrId ? tasks.filter((t) => t.person_id === idOf) : tasks)
-  .filter(aberta)
-  .sort((a, b) =>
-    a.person_id === b.person_id
-      ? a.task_id.localeCompare(b.task_id)
-      : a.person_id.localeCompare(b.person_id),
-  );
-  if (sel.length === 0) {
-  return targetNameOrId ? `Nenhuma tarefa em aberto para ${nameOf}.` : 'Nenhuma tarefa em aberto.';
+
+  let sel: Task[];
+  let emptyMsg: string;
+
+  if (command.grupo) {
+    sel = tasks.filter((t) => t.grupo === command.grupo);
+    emptyMsg = `Nenhuma tarefa em aberto no grupo "${command.grupo}".`;
+  } else if (command.pessoa) {
+    const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
+    if (ambiguous.length > 0) return 'Nome ambíguo. Tente digitar mais precisamente ou o pId.';
+    if (!match) return `person_id ou person_name "${command.pessoa}" não encontrado.`;
+    sel = tasks.filter((t) => t.person_id === match.person_id);
+    emptyMsg = `Nenhuma tarefa em aberto para ${match.nome}.`;
+  } else {
+    sel = tasks;
+    emptyMsg = 'Nenhuma tarefa em aberto.';
   }
-  return sel.map((t) => `${t.task_id} [${nameFromPid(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
-  .join('\n');
+
+  const open = sel
+    .filter(aberta)
+    .sort((a, b) =>
+      a.person_id === b.person_id
+        ? a.task_id.localeCompare(b.task_id)
+        : a.person_id.localeCompare(b.person_id),
+    );
+  if (open.length === 0) return emptyMsg;
+  return open
+    .map((t) => `${t.task_id} [${nameFromPid(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
+    .join('\n');
 }
 
 interface GroupDoneNotice {
