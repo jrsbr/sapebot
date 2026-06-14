@@ -23,6 +23,7 @@ import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, AdminAdd, AdminRemove, AdminList, AdminReport } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
+import { askLlm } from './llm';
 
 export const webhookRouter = Router();
 
@@ -201,6 +202,7 @@ async function handleOneMessage(
   let notices: GroupDoneNotice[] = [];
   const changed: Task[] = [];
   const autoChanged: Designated[] = [];
+  let llmResponded = false;
 
   switch (intent.type) {
     case 'help':
@@ -310,8 +312,11 @@ async function handleOneMessage(
       break;
     }
 
-    default:
-      reply = 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
+    default: {
+      const geminiReply = await askLlm(text);
+      llmResponded = geminiReply !== null;
+      reply = geminiReply ?? 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
+    }
   }
 
   if (changed.length) {
@@ -345,7 +350,7 @@ async function handleOneMessage(
 
   await safeAppend(inboundRow);
   const sendResult = await sendText(person.whatsapp_e164, reply);
-  await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, relatedKey, sendResult));
+  await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, llmResponded ? 'llm' : relatedKey, sendResult));
 }
 
 async function handleAdminAdd(
