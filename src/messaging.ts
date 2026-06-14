@@ -178,6 +178,8 @@ export function adminErrorMessage(error: AdminError): string {
       return 'Faltou a periodicidade: -o (uma vez), -w (semanal) ou -d (diária). Ex.: admin add -p João -m "lavar a louça" -d';
     case 'invalid_date':
       return 'Data inválida. Use o formato AAAA-MM-DD. Ex.: -t 2026-06-20';
+    case 'duplicate_flag':
+      return `Flag repetida. Apenas flags do tipo '-p' em operação de add podem ser repetidas.`
     default: {
       const _exhaustive: never = error;
       return _exhaustive;

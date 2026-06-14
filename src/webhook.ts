@@ -354,34 +354,61 @@ async function handleAdminAdd(
   tasks: Task[],
   today: string,
 ): Promise<string> {
-  const targetNameOrId = command.pessoa;
+  const targets = [...new Set(command.pessoas)];
   const per = command.periodicidade
   const descricao = command.descricao;
-  const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people,targetNameOrId);
-  if (pAmbiguous.length > 0) {
-    return `O nome "${targetNameOrId}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+  const notResolved: string[] = [];
+  const targetPerson: Person[] = [];
+
+  for (const pessoa of targets) {
+    const { match: pMatch, ambiguous: pAmbiguous } = findPersonByIdOrName(people, pessoa);
+
+    if (pAmbiguous.length > 0 || !pMatch) {
+      notResolved.push(pessoa);
+      continue;
+    }
+    targetPerson.push(pMatch);
   }
-  if (!pMatch) {
-    return `person_id ou person_name "${targetNameOrId}" não foi encontrado.`;
-  }
-  const targetId = pMatch.person_id;
-  const maxNum = tasks.reduce((m, t) => {
+
+  if (notResolved.length > 0) return [
+    `Não foi possível realizar a operação. Os nomes`,
+    notResolved.join(', '),
+    'estão ambíguos ou não foram encontrados. Tente os escrever novamente.'
+  ].join(' ');
+
+  let maxNum = tasks.reduce((m, t) => {
     const mm = /^t(\d+)$/.exec(t.task_id);
     return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
   }, 0);
-  const newId = 't' + String(maxNum + 1).padStart(3, '0');
-  const newTask: Task = {
-    __row: 0, task_id: newId, person_id: targetId, descricao,
-    data: command.data || today, 
-    status: 'pending', periodicidade: per as any,
-    cobrar: true, last_reminder_at: '', completed_at: '', skip_until: '', observacoes: '', grupo: command.grupo,
-  };
+
+  const criadas: string[] = [];
+  const alvos = [...new Map(targetPerson.map((p) => [p.person_id, p])).values()];
   try {
-    await appendTask(newTask);
-    return `Tarefa criada: ${newId} → ${pMatch.nome} — "${descricao}" (${per}).`;
+    for (const person of alvos) {
+      maxNum++
+      const newId = 't' + String(maxNum).padStart(3, '0');
+      const newTask: Task = {
+        __row: 0, 
+        task_id: newId, 
+        person_id: person.person_id, 
+        descricao,
+        data: command.data || today,    
+        status: 'pending', 
+        periodicidade: per,
+        cobrar: true, 
+        last_reminder_at: '', 
+        completed_at: '', skip_until: '', 
+        observacoes: '', 
+        grupo: command.grupo,
+      };
+      await appendTask(newTask);
+      criadas.push(`${newId} -> ${person.nome}`);
+    }
   } catch {
-    return 'Falha ao criar a tarefa. Veja os logs.';
+    return `Falha ao criar tarefas. Criadas até falhar: ${criadas.join(', ') || 'nenhuma'}. Veja os logs.`;
   }
+  const grupoMsg = command.grupo ? ` [grupo: ${command.grupo}]` : '';
+return `Tarefa(s) criada(s) — "${descricao}" (${per})${grupoMsg}: ${criadas.join(', ')}.`;
 }
 
 async function handleAdminRemove(
