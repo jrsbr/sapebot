@@ -13,7 +13,7 @@ import { parseMessage } from './parser';
 import {
   findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
-  brPhoneKey, findPersonByIdOrName
+  brPhoneKey, findPersonByIdOrName, linkedPendingTasks
 } from './tasks';
 import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage
  } from './messaging';
@@ -490,6 +490,10 @@ function handleDone(
       if (t) {
         markDone(t, stamp);
         changed.push(t);
+        for (const linked of linkedPendingTasks(tasks, t)) {
+          markDone(linked, stamp);
+          changed.push(linked);
+        }
       }
     } else {
         const d = designated.find((x) => x.__row === g.__row);
