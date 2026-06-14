@@ -121,8 +121,8 @@ export function parseAdminCommand(
         const descricao = flags.get('-m');
         if (typeof descricao !== 'string') return { error: 'missing_description' };
 
-        const pessoa = flags.get('-p');
-        if (typeof pessoa !== 'string') return { error: 'missing_target' };
+        const pessoas = flags.get('-p');
+        if (!Array.isArray(pessoas) || pessoas.length === 0) return { error: 'missing_target' };
 
         const periodicidades = [
             ['-o', 'once'],
@@ -144,7 +144,7 @@ export function parseAdminCommand(
             data = dataValue;
         }
 
-        return { sub: 'add', pessoa, descricao, periodicidade, grupo, data };
+        return { sub: 'add', pessoas, descricao, periodicidade, grupo, data };
     }
 
     if (sub === 'remove') {
