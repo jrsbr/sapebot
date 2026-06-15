@@ -43,7 +43,7 @@ export async function askLlm(
     if (env.GEMINI_API_KEY === '') return null;
 
     const sysPrompt = { parts: [{ text: SYSTEM_PROMPT }] };
-    const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: lastUserText}] }];
+    const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
     const config = { maxOutputTokens: 200, temperature: 0.6 };
     
     const body = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations }] };
@@ -72,7 +72,8 @@ export async function askLlm(
             logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name });
             userContent.push(parsedContent);
             const result = runTool(fnCall.name, ctx, fnCall.args ?? {});
-            userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: result } }] });
+            const cleanResult = JSON.parse(sanitizeForGemini(JSON.stringify(result)));
+            userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: cleanResult } }] });
 
         } catch (err) {
             const e = err as any;
@@ -83,6 +84,14 @@ export async function askLlm(
 
     logger.warn('Loop LLM esgotou MAX_LLM_ITER sem resposta final.', { max: MAX_LLM_ITER });
     return null;
+}
+
+function sanitizeForGemini(text: string): string {
+  return text
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{1F1E6}-\u{1F1FF}\uFE0F]/gu, '')
+    .trim();
 }
 
 function templateToReadable(body: string): string {
@@ -114,9 +123,9 @@ function buildHistory (
     .slice(-historyLimit)
     .map((m): { role: 'user' | 'model', parts: { text: string }[] } => {
         if (m.direction === 'inbound') {
-            return { role: 'user', parts: [{ text: templateToReadable(m.body) }]};
+            return { role: 'user', parts: [{ text: sanitizeForGemini(templateToReadable(m.body))}]};
         } else {
-            return { role: 'model', parts: [{ text: templateToReadable(m.body) }]};
+            return { role: 'model', parts: [{ text: sanitizeForGemini(templateToReadable(m.body))}]};
         }
     }
     );
