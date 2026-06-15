@@ -46,18 +46,19 @@ export async function askLlm(
     const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
     const config = { maxOutputTokens: 200, temperature: 0.6 };
     
-    const body = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations }] };
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
     const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: 10000 };
 
     for (let i = 0 ; i < MAX_LLM_ITER ; i ++) {
         try {
+            const body: any = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations }] };
+            if (i > 0) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
             const resp = await axios.post(url, body, opts);
             const cand = resp.data.candidates?.[0];
             const parsedContent = cand?.content;
             const parsedParts = parsedContent?.parts ?? null;
             if (!parsedParts) {
-                logger.warn('Gemini retornou sem parts.', { iter: i, finishReason: cand?.finishReason, promptFeedback: resp.data?.promptFeedback });
+                logger.warn('Gemini retornou sem parts.', { iter: i, finishReason: cand?.finishReason, candidate: JSON.stringify(cand) });
                 return null;
             }
             const fnCall = parsedParts.find((p: any) => p.functionCall)?.functionCall;
