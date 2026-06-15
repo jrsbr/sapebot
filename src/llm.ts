@@ -53,21 +53,35 @@ export async function askLlm(
     for (let i = 0 ; i < MAX_LLM_ITER ; i ++) {
         try {
             const resp = await axios.post(url, body, opts);
-            const parsedContent = resp.data.candidates?.[0].content;
-            const parsedParts = resp.data.candidates?.[0]?.content?.parts ?? null;
-            if (!parsedParts) return null;
+            const cand = resp.data.candidates?.[0];
+            const parsedContent = cand?.content;
+            const parsedParts = parsedContent?.parts ?? null;
+            if (!parsedParts) {
+                logger.warn('Gemini retornou sem parts.', { iter: i, finishReason: cand?.finishReason, promptFeedback: resp.data?.promptFeedback });
+                return null;
+            }
             const fnCall = parsedParts.find((p: any) => p.functionCall)?.functionCall;
-            if (!fnCall) return parsedParts[0].text ?? null;
+            if (!fnCall) {
+                const text = parsedParts.filter((p: any) => p.text).map((p: any) => p.text).join('').trim();
+                if (!text) {
+                    logger.warn('Gemini sem texto na resposta final.', { iter: i, finishReason: cand?.finishReason });
+                    return null;
+                }
+                return text;
+            }
+            logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name });
             userContent.push(parsedContent);
             const result = runTool(fnCall.name, ctx, fnCall.args ?? {});
             userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: result } }] });
-            
+
         } catch (err) {
-            logger.error('Falha na requisição ao Gemini.', { error: (err as Error).message });
+            const e = err as any;
+            logger.error('Falha na requisição ao Gemini.', { error: e?.message, status: e?.response?.status, data: e?.response?.data });
             return null;
         }
     }
 
+    logger.warn('Loop LLM esgotou MAX_LLM_ITER sem resposta final.', { max: MAX_LLM_ITER });
     return null;
 }
 
