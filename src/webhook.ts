@@ -24,6 +24,7 @@ import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from 
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, AdminAdd, AdminRemove, AdminList, AdminReport } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { askLlm } from './llm';
+import { clearPending, getPending, setPending } from './pending';
 
 export const webhookRouter = Router();
 
@@ -204,6 +205,7 @@ async function handleOneMessage(
   const autoChanged: Designated[] = [];
   let llmResponded = false;
 
+  if (intent.type !== 'confirm' && intent.type !== 'cancel') clearPending(person.whatsapp_e164);
   switch (intent.type) {
     case 'help':
       reply = formatHelpText();
@@ -225,21 +227,49 @@ async function handleOneMessage(
 
     case 'ferias_on': {
       reply = handleFeriasOn(person);
+      if (!person.ferias) setPending(person.whatsapp_e164, { kind: 'ferias_on' });
       break;
     }
     
     case 'ferias_off': {
       reply = handleFeriasOff(person);
+      if (person.ferias) setPending(person.whatsapp_e164, { kind: 'ferias_off' });
       break;
     }
 
-    case 'ferias_on_confirm': {
-      reply = await handleFeriasOnConfirm(person, designated);
+    case 'confirm': {
+      const p = getPending(person.whatsapp_e164);
+      if (!p) {
+        reply = 'Não há nada para confirmar.';
+        clearPending(person.whatsapp_e164);
+        break;
+      }
+      if (p.kind === 'ferias_on') {
+        reply = await handleFeriasOnConfirm(person, designated);
+        clearPending(person.whatsapp_e164);
+        break;
+      }
+      if (p.kind === 'ferias_off') {
+        reply = await handleFeriasOffConfirm(person);
+        clearPending(person.whatsapp_e164);
+        break;
+      }
+      if (p.kind === 'command') {
+        reply = 'Comandos confirmáveis ainda não suportados.';
+        clearPending(person.whatsapp_e164);
+        break;
+      }
       break;
     }
 
-    case 'ferias_off_confirm': {
-      reply = await handleFeriasOffConfirm(person);
+    case 'cancel': {
+      const p = getPending(person.whatsapp_e164);
+      if (p) {
+        clearPending(person.whatsapp_e164);
+        reply = 'Operação cancelada com sucesso! Precisa de mais algo?';
+      } else {
+        reply = 'Não há nada para cancelar.';
+      }
       break;
     }
 
@@ -643,14 +673,14 @@ function handleFeriasOn(
   person: Person
 ): string {
   if (person.ferias) return `Você já está de férias. Para sair de férias digite "voltar ferias".`;
-  return 'Para confirmar a entrada de férias, digite "confirmar ferias". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje entrar de férias, basta ignorar essa mensagem.';
+  return 'Para confirmar a entrada de férias, digite "confirmar". Essa ação tem consequências diretas na distribuição de tarefas da semana e não deve ser confirmada se não for intencional. Caso não deseje entrar de férias, digite "cancelar".';
 }
 
 function handleFeriasOff(
   person: Person
 ): string {
   if (!person.ferias) return `Você não está de férias. Para entrar de férias digite "ferias".`;
-  return 'Para confirmar o término de suas férias, digite "confirmar voltar ferias". Ao confirmar você voltará a receber tarefas automáticamente. Caso não deseje voltar de férias, basta ignorar essa mensagem.';
+  return 'Para confirmar o término de suas férias, digite "confirmar". Ao confirmar você voltará a receber tarefas automáticamente. Caso não deseje voltar de férias, "cancelar".';
 }
 
 async function handleFeriasOnConfirm(

@@ -105,9 +105,7 @@ export type Intent =
   | { type: 'unknown'; raw: string }
   | { type: 'admin'; raw: string }
   | { type: 'ferias_on' }
-  | { type: 'ferias_on_confirm' }
   | { type: 'ferias_off' }
-  | { type: 'ferias_off_confirm' }
   | { type: 'calendar'}
   | { type: 'bomdia' }
   | { type: 'confirm' }
