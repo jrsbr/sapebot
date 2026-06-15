@@ -44,7 +44,7 @@ export async function askLlm(
 
     const sysPrompt = { parts: [{ text: SYSTEM_PROMPT }] };
     const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
-    const config = { maxOutputTokens: 200, temperature: 0.6 };
+    const config = { maxOutputTokens: 800, temperature: 0.6 };
     
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
     const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: 10000 };
@@ -70,9 +70,9 @@ export async function askLlm(
                 }
                 return text;
             }
-            logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name });
             userContent.push(parsedContent);
             const result = runTool(fnCall.name, ctx, fnCall.args ?? {});
+            logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name, result: JSON.stringify(result) });
             const cleanResult = JSON.parse(sanitizeForGemini(JSON.stringify(result)));
             userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: cleanResult } }] });
 
