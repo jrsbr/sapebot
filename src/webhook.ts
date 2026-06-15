@@ -240,8 +240,7 @@ async function handleOneMessage(
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
-        reply = 'Não há nada para confirmar.';
-        clearPending(person.whatsapp_e164);
+        ({ llmResponded, reply } = await callLlm(text));
         break;
       }
       if (p.kind === 'ferias_on') {
@@ -259,6 +258,7 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         break;
       }
+      ({ llmResponded, reply } = await callLlm(text));
       break;
     }
 
@@ -268,7 +268,7 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         reply = 'Operação cancelada com sucesso! Precisa de mais algo?';
       } else {
-        reply = 'Não há nada para cancelar.';
+        ({ llmResponded, reply } = await callLlm(text));
       }
       break;
     }
@@ -343,9 +343,7 @@ async function handleOneMessage(
     }
 
     default: {
-      const geminiReply = await askLlm(text);
-      llmResponded = geminiReply !== null;
-      reply = geminiReply ?? 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
+      ({ llmResponded, reply } = await callLlm(text));
     }
   }
 
@@ -739,4 +737,12 @@ function handleAdminReport(
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
   }
   return formatMissedReport(missedAutoTask, people, autoTask);
+}
+
+async function callLlm (
+  text: string,
+): Promise<{ llmResponded: boolean, reply: string }> {
+  const llmReply = await askLlm(text);
+  const llmResponded = llmReply !== null;
+  return { llmResponded: llmResponded, reply: llmReply ?? 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.' };
 }
