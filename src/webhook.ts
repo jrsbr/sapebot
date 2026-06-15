@@ -102,7 +102,7 @@ async function processWebhookBody(body: any): Promise<void> {
   const seenIds = new Set(messages.map((m) => m.message_id).filter(Boolean));
   for (const msg of incoming) {
     try {
-      await handleOneMessage(msg, people, tasks, autoTask, designated, seenIds);
+      await handleOneMessage(msg, people, tasks, autoTask, designated, seenIds, messages);
     } catch (err) {
       logger.error('Erro ao tratar mensagem recebida', { error: (err as Error).message });
     }
@@ -155,8 +155,8 @@ async function handleOneMessage(
   autoTask: AutoTask[],
   designated: Designated[],
   seenIds: Set<string>,
+  messages: MessageRow[]
 ): Promise<void> {
-  // Dedup de reentregas da Meta.
   if (msg.id && seenIds.has(msg.id)) {
     logger.info(`Mensagem ${msg.id} já processada, ignorando reentrega.`);
     return;
@@ -240,7 +240,7 @@ async function handleOneMessage(
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
-        ({ llmResponded, reply } = await callLlm(text));
+        ({ llmResponded, reply } = await callLlm(text, messages, phone));
         break;
       }
       if (p.kind === 'ferias_on') {
@@ -258,7 +258,7 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         break;
       }
-      ({ llmResponded, reply } = await callLlm(text));
+      ({ llmResponded, reply } = await callLlm(text, messages, phone));
       break;
     }
 
@@ -268,7 +268,7 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         reply = 'Operação cancelada com sucesso! Precisa de mais algo?';
       } else {
-        ({ llmResponded, reply } = await callLlm(text));
+        ({ llmResponded, reply } = await callLlm(text, messages, phone));
       }
       break;
     }
@@ -343,7 +343,7 @@ async function handleOneMessage(
     }
 
     default: {
-      ({ llmResponded, reply } = await callLlm(text));
+      ({ llmResponded, reply } = await callLlm(text, messages, phone));
     }
   }
 
@@ -741,8 +741,10 @@ function handleAdminReport(
 
 async function callLlm (
   text: string,
+  messages: MessageRow[],
+  phone: string,
 ): Promise<{ llmResponded: boolean, reply: string }> {
-  const llmReply = await askLlm(text);
+  const llmReply = await askLlm(text, messages, phone);
   const llmResponded = llmReply !== null;
   return { llmResponded: llmResponded, reply: llmReply ?? 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.' };
 }
