@@ -19,6 +19,8 @@ const DONE_WORDS = [
 const SKIP_WORDS = ['pular', 'pula', 'pulei', 'skip', 'adiar', 'adia'];
 const STATUS_WORDS = ['status', 'situacao', 'pendentes', 'pendente', 'faltam', 'falta'];
 const HELP_WORDS = ['ajuda', 'help', 'comandos', 'comando', '?'];
+const CONFIRM_WORDS = ['sim', 'confirmar', 'confirma', 's', 'pode', 'ok', 'isso'];
+const CANCEL_WORDS = ['nao', 'cancelar', 'cancela'];
 
 export function parseMessage(text: string): Intent {
   const raw = text ?? '';
@@ -40,12 +42,10 @@ export function parseMessage(text: string): Intent {
   if (first === 'voltar' && rest === 'ferias') {
     return { type: 'ferias_off' };
   }
-  if (first === 'confirmar') {
-    if (rest === 'ferias') return { type: 'ferias_on_confirm' };
-    if (rest === 'voltar ferias') return { type: 'ferias_off_confirm' };
-  }
   if (first === 'semana' && rest === '') return { type: 'calendar' };
   if (/^bom\s?dia+\b/.test(norm)) return { type: 'bomdia' };
+  if (rest === '' && CONFIRM_WORDS.includes(first)) return { type: 'confirm' };
+  if (rest === '' && CANCEL_WORDS.includes(first)) return { type: 'cancel' };
 
   return { type: 'unknown', raw };
 }
