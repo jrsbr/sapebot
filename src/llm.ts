@@ -2,8 +2,11 @@ import { env } from "./config";
 import axios from 'axios';
 import { logger } from "./logger";
 import { formatHelpText } from "./messaging";
-import { MessageRow } from "./types";
+import { LlmContext, MessageRow } from "./types";
 import { brPhoneKey } from "./tasks";
+import { functionDeclarations, runTool } from "./llmtools";
+
+const MAX_LLM_ITER = 5;
 
 const SYSTEM_PROMPT = `Você é o Sapebot, um bot de WhatsApp que organiza as tarefas domésticas de uma república. Você está conversando direto com um morador: ele mandou uma mensagem que você não reconheceu como comando, então responda de forma breve e simpática, na primeira pessoa, como o próprio Sapebot (ex.: "Oi, eu sou o Sapebot, tudo certo?").
 
@@ -28,28 +31,37 @@ ${formatHelpText()}`;
 
 export async function askLlm(
     lastUserText: string,
-    messages: MessageRow[],
-    phone: string,
+    ctx: LlmContext,
 ): Promise<string | null> {
     if (env.GEMINI_API_KEY === '') return null;
 
     const sysPrompt = { parts: [{ text: SYSTEM_PROMPT }] };
-    const userContent = [...buildHistory(messages, phone), { role:'user', parts:[{ text: lastUserText}] }];
+    const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: lastUserText}] }];
     const config = { maxOutputTokens: 200, temperature: 0.6 };
     
-    const body = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config };
+    const body = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations }] };
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
     const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: 10000 };
 
-    try {
-        const resp = await axios.post(url, body, opts);
-        const parsedResp = resp.data.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
-        return parsedResp;
-        
-    } catch (err) {
-        logger.error('Falha na requisição ao Gemini.', { error: (err as Error).message });
-        return null;
+    for (let i = 0 ; i < MAX_LLM_ITER ; i ++) {
+        try {
+            const resp = await axios.post(url, body, opts);
+            const parsedContent = resp.data.candidates?.[0].content;
+            const parsedParts = resp.data.candidates?.[0]?.content?.parts ?? null;
+            if (!parsedParts) return null;
+            const fnCall = parsedParts.find((p: any) => p.functionCall)?.functionCall;
+            if (!fnCall) return parsedParts[0].text ?? null;
+            userContent.push(parsedContent);
+            const result = runTool(fnCall.name, ctx, fnCall.args ?? {});
+            userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: result } }] });
+            
+        } catch (err) {
+            logger.error('Falha na requisição ao Gemini.', { error: (err as Error).message });
+            return null;
+        }
     }
+
+    return null;
 }
 
 function templateToReadable(body: string): string {
