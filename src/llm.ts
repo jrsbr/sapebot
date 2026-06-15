@@ -52,6 +52,22 @@ export async function askLlm(
     }
 }
 
+function templateToReadable(body: string): string {
+  if (body.startsWith(`[template:${env.WHATSAPP_TEMPLATE_TASKS}]`)) {
+    const tarefas = body.split('tarefas=')[1] ?? '';
+    return `Enviei o lembrete das tarefas de hoje. Tarefas: ${tarefas}`;
+  }
+  if (body.startsWith(`[template:${env.WHATSAPP_TEMPLATE_TASK_DONE_BY}]`)) {
+    const [left, por = ''] = body.split(' por=');
+    const tarefa = left.split('tarefa=')[1] ?? '';
+    return `Avisei que ${por} concluiu a tarefa: ${tarefa}`;
+  }
+  if (body.startsWith('[sem tarefas]')) {
+    return 'Avisei que não havia tarefas para hoje.';
+  }
+  return body;
+}
+
 function buildHistory (
     messages: MessageRow[],
     phone: string,
@@ -59,16 +75,15 @@ function buildHistory (
 ): { role: 'user' | 'model', parts: { text: string }[] }[] {
     const history = messages.filter((m) =>
         brPhoneKey(m.whatsapp_e164) === brPhoneKey(phone) &&
-        m.body !== '' &&
-        !m.body.startsWith('[template:')
+        m.body !== ''
     )
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
     .slice(-historyLimit)
     .map((m): { role: 'user' | 'model', parts: { text: string }[] } => {
         if (m.direction === 'inbound') {
-            return { role: 'user', parts: [{ text: m.body }]};
+            return { role: 'user', parts: [{ text: templateToReadable(m.body) }]};
         } else {
-            return { role: 'model', parts: [{ text: m.body }]};
+            return { role: 'model', parts: [{ text: templateToReadable(m.body) }]};
         }
     }
     );
