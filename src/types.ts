@@ -160,3 +160,14 @@ export interface AdminReport {
 }
 
 export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport;
+
+export interface LlmContext {
+  messages: MessageRow[];
+  people: Person[];
+  tasks: Task[];
+  designated: Designated[];
+  autoTask: AutoTask[];
+  person: Person;      
+  today: string;
+  logicalToday: string;
+}
