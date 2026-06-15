@@ -2,6 +2,8 @@ import { env } from "./config";
 import axios from 'axios';
 import { logger } from "./logger";
 import { formatHelpText } from "./messaging";
+import { MessageRow } from "./types";
+import { brPhoneKey } from "./tasks";
 
 const SYSTEM_PROMPT = `Você é o Sapebot, um bot de WhatsApp que organiza as tarefas domésticas de uma república. Você está conversando direto com um morador: ele mandou uma mensagem que você não reconheceu como comando, então responda de forma breve e simpática, na primeira pessoa, como o próprio Sapebot (ex.: "Oi, eu sou o Sapebot, tudo certo?").
 
@@ -25,12 +27,14 @@ Comandos do bot (referência — quando a mensagem parecer um deles digitado err
 ${formatHelpText()}`;
 
 export async function askLlm(
-    userText: string,
+    lastUserText: string,
+    messages: MessageRow[],
+    phone: string,
 ): Promise<string | null> {
     if (env.GEMINI_API_KEY === '') return null;
 
     const sysPrompt = { parts: [{ text: SYSTEM_PROMPT }] };
-    const userContent = [{ role: 'user', parts: [{ text: userText }] }];
+    const userContent = [...buildHistory(messages, phone), { role:'user', parts:[{ text: lastUserText}] }];
     const config = { maxOutputTokens: 200, temperature: 0.6 };
     
     const body = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config };
@@ -46,4 +50,29 @@ export async function askLlm(
         logger.error('Falha na requisição ao Gemini.', { error: (err as Error).message });
         return null;
     }
+}
+
+function buildHistory (
+    messages: MessageRow[],
+    phone: string,
+    historyLimit: number = 6,
+): { role: 'user' | 'model', parts: { text: string }[] }[] {
+    const history = messages.filter((m) =>
+        brPhoneKey(m.whatsapp_e164) === brPhoneKey(phone) &&
+        m.body !== '' &&
+        !m.body.startsWith('[template:')
+    )
+    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    .slice(-historyLimit)
+    .map((m): { role: 'user' | 'model', parts: { text: string }[] } => {
+        if (m.direction === 'inbound') {
+            return { role: 'user', parts: [{ text: m.body }]};
+        } else {
+            return { role: 'model', parts: [{ text: m.body }]};
+        }
+    }
+    );
+    let i: number;
+    for (i = 0 ; history[i]?.role === 'model'; i++);
+    return history.slice(i);
 }
