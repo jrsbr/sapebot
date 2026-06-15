@@ -1,8 +1,9 @@
 import type { LlmContext } from "./types";
 import { getPendingTasksForToday } from "./tasks";
-import { getPendingAutoForToday, countInWindow, successRate } from "./autotask";
+import { getPendingAutoForToday } from "./autotask";
 import { buildCombinedList, buildWeekCalendar } from "./generictask";
-import { addDays, weekdayName } from "./time";
+import { weekdayName } from "./time";
+import { formatHelpText } from "./messaging";
 
 // nao mexer, formato que o Gemini espera
 interface FunctionDeclaration {
@@ -75,14 +76,14 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
     },
   },
 
-  ranking: {
+  ajuda: {
     declaration: {
-      name: 'ranking',
-      description: 'Ranking dos moradores por taxa de cumprimento das tarefas automáticas nos últimos 30 dias.',
+      name: 'ajuda',
+      description: 'Retorna a lista oficial de comandos do bot. Use quando a pessoa perguntar o que você faz, quais comandos existem, como usar o bot, ou pedir ajuda.',
       parameters: noArgs,
     },
     run: (ctx) => {
-      throw new Error('ranking não implementado');
+      return { comandos: `${formatHelpText()}` };
     },
   },
 };
