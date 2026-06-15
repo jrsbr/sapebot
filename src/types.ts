@@ -109,7 +109,9 @@ export type Intent =
   | { type: 'ferias_off' }
   | { type: 'ferias_off_confirm' }
   | { type: 'calendar'}
-  | { type: 'bomdia' };
+  | { type: 'bomdia' }
+  | { type: 'confirm' }
+  | { type: 'cancel' };
   
 export interface ResolveResult {
   targets: GenericTask[];
