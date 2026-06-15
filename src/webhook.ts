@@ -21,7 +21,7 @@ import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
-import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, AdminAdd, AdminRemove, AdminList, AdminReport } from './types'
+import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, AdminAdd, AdminRemove, AdminList, AdminReport, LlmContext } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { askLlm } from './llm';
 import { clearPending, getPending, setPending } from './pending';
@@ -204,6 +204,16 @@ async function handleOneMessage(
   const changed: Task[] = [];
   const autoChanged: Designated[] = [];
   let llmResponded = false;
+  const ctx: LlmContext = {
+    messages: messages,
+    people: people,
+    tasks: tasks,
+    designated: designated,
+    autoTask: autoTask,
+    person: person,      
+    today: today,
+    logicalToday: logicalToday,
+  };
 
   if (intent.type !== 'confirm' && intent.type !== 'cancel') clearPending(person.whatsapp_e164);
   switch (intent.type) {
@@ -240,7 +250,7 @@ async function handleOneMessage(
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
-        ({ llmResponded, reply } = await callLlm(text, messages, phone));
+        ({ llmResponded, reply } = await callLlm(text, ctx));
         break;
       }
       if (p.kind === 'ferias_on') {
@@ -258,7 +268,7 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         break;
       }
-      ({ llmResponded, reply } = await callLlm(text, messages, phone));
+      ({ llmResponded, reply } = await callLlm(text, ctx));
       break;
     }
 
@@ -268,7 +278,7 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         reply = 'Operação cancelada com sucesso! Precisa de mais algo?';
       } else {
-        ({ llmResponded, reply } = await callLlm(text, messages, phone));
+        ({ llmResponded, reply } = await callLlm(text, ctx));
       }
       break;
     }
@@ -343,7 +353,7 @@ async function handleOneMessage(
     }
 
     default: {
-      ({ llmResponded, reply } = await callLlm(text, messages, phone));
+      ({ llmResponded, reply } = await callLlm(text, ctx));
     }
   }
 
@@ -741,10 +751,9 @@ function handleAdminReport(
 
 async function callLlm (
   text: string,
-  messages: MessageRow[],
-  phone: string,
+  ctx: LlmContext,
 ): Promise<{ llmResponded: boolean, reply: string }> {
-  const llmReply = await askLlm(text, messages, phone);
+  const llmReply = await askLlm(text, ctx);
   const llmResponded = llmReply !== null;
   return { llmResponded: llmResponded, reply: llmReply ?? 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.' };
 }
