@@ -2,7 +2,7 @@ import type { LlmContext } from "./types";
 import { getPendingTasksForToday } from "./tasks";
 import { getPendingAutoForToday } from "./autotask";
 import { buildCombinedList, buildWeekCalendar } from "./generictask";
-import { weekdayName } from "./time";
+import { weekdayName, addDays } from "./time";
 import { formatHelpText } from "./messaging";
 
 // nao mexer, formato que o Gemini espera
@@ -51,10 +51,10 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
     },
   },
 
-  status_casa: {
+  tarefas_casa: {
     declaration: {
-      name: 'status_casa',
-      description: 'Resumo geral da casa: tarefas pendentes hoje de cada morador e quem está designado para as tarefas automáticas de hoje.',
+      name: 'tarefas_casa',
+      description: 'Resumo geral da casa: tarefas pendentes hoje de cada morador e quem está designado para as tarefas automáticas da semana.',
       parameters: noArgs,
     },
     run: (ctx) => {
@@ -69,10 +69,10 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
           return { nome: p.nome, tarefas: combined.map((t) => t.descricao) };
         })
         .filter((x) => x.tarefas.length > 0);
-      const designados_hoje = ctx.designated
-        .filter((d) => d.data === ctx.logicalToday)
-        .map((d) => ({ tarefa: descFromTid(d.task_id), pessoa: nomeFromPid(d.person_id), status: d.status }));
-      return { pendentes_por_pessoa, designados_hoje };
+      const designados_semana = ctx.designated
+        .filter((d) => d.data >= ctx.logicalToday && d.data <= addDays(ctx.logicalToday, 6))
+        .map((d) => ({ tarefa: descFromTid(d.task_id), pessoa: nomeFromPid(d.person_id), status: d.status, data: d.data }));
+      return { pendentes_por_pessoa, designados_semana };
     },
   },
 
