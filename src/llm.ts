@@ -44,10 +44,10 @@ export async function askLlm(
 
     const sysPrompt = { parts: [{ text: SYSTEM_PROMPT }] };
     const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
-    const config = { maxOutputTokens: 800, temperature: 0.6 };
+    const config = { maxOutputTokens: 800, temperature: 0.6, thinkingConfig: { thinkingBudget: 512 } };
     
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
-    const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: 10000 };
+    const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: 20000 };
 
     for (let i = 0 ; i < MAX_LLM_ITER ; i ++) {
         try {
