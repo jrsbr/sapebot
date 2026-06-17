@@ -36,6 +36,20 @@ Estilo:
 Comandos do bot (referência — quando a mensagem parecer um deles digitado errado ou outra forma de pedir a mesma ação, sugira o comando exato):
 ${formatHelpText()}`;
 
+async function postWithRetry(url: string, body: any, opts: any, retries = 2): Promise<any> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await axios.post(url, body, opts);
+    } catch (err) {
+      const status = (err as any)?.response?.status;
+      const retryable = status === 503 || status === 429;
+      if (!retryable || attempt >= retries) throw err;
+      logger.warn('Retry Gemini após erro transitório.', { attempt, status });
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+}
+
 export async function askLlm(
     lastUserText: string,
     ctx: LlmContext,
@@ -53,7 +67,7 @@ export async function askLlm(
         try {
             const body: any = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations }] };
             if (i > 0) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
-            const resp = await axios.post(url, body, opts);
+            const resp = await postWithRetry(url, body, opts);
             const cand = resp.data.candidates?.[0];
             const parsedContent = cand?.content;
             const parsedParts = parsedContent?.parts ?? null;
