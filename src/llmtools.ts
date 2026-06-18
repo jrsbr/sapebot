@@ -1,9 +1,10 @@
-import type { LlmContext } from "./types";
+import type { LlmContext, Intent } from "./types";
 import { getPendingTasksForToday } from "./tasks";
 import { getPendingAutoForToday } from "./autotask";
-import { buildCombinedList, buildWeekCalendar } from "./generictask";
+import { buildCombinedList, buildWeekCalendar, resolveTargets } from "./generictask";
 import { weekdayName, addDays } from "./time";
 import { formatHelpText } from "./messaging";
+import { setPending } from "./pending";
 
 // nao mexer, formato que o Gemini espera
 interface FunctionDeclaration {
@@ -28,7 +29,7 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
       const pending = getPendingTasksForToday(ctx.tasks, pid, ctx.today);
       const autoPending = getPendingAutoForToday(ctx.designated, pid, ctx.logicalToday);
       const combined = buildCombinedList(pending, autoPending, ctx.autoTask);
-      return { tarefas: combined.map((t, i) => ({ numero: i + 1, descricao: t.descricao })) };
+      return { dia_da_semana_hoje: weekdayName(ctx.today), tarefas: combined.map((t, i) => ({ numero: i + 1, descricao: t.descricao })) };
     },
   },
 
@@ -46,7 +47,8 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
       const calendar = buildWeekCalendar(ctx.tasks, ctx.designated, ctx.autoTask, pid, ctx.today, ctx.logicalToday);
       return {
         hoje: combined.map((t) => t.descricao),
-        semana: calendar.map((d) => ({ dia: weekdayName(d.data), descricoes: d.descricoes })),
+        dia_da_semana_hoje: weekdayName(ctx.today),
+        semana: calendar.map((d) => ({ dia: weekdayName(d.data), data: d.data, descricoes: d.descricoes })),
       };
     },
   },
@@ -72,7 +74,7 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
       const designados_semana = ctx.designated
         .filter((d) => d.data >= ctx.logicalToday && d.data <= addDays(ctx.logicalToday, 6))
         .map((d) => ({ tarefa: descFromTid(d.task_id), pessoa: nomeFromPid(d.person_id), status: d.status, data: d.data }));
-      return { pendentes_por_pessoa, designados_semana };
+      return { pendentes_por_pessoa, designados_semana, dia_da_semana_hoje: weekdayName(ctx.today) };
     },
   },
 
@@ -86,6 +88,29 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
       return { comandos: `${formatHelpText()}` };
     },
   },
+
+  marcar_feito: {
+    declaration: {
+      name: 'marcar_feito',
+      description: 'Marca o estado de uma tarefa ou de várias tarefas pendente(s) como "a confirmar" e pede para que o usuário digite "confirmar" para confirmar a marcação.',
+      parameters: { type: 'object', properties: { tarefa: { type: 'string', description: 'Descrição da tarefa' } } }
+    },
+    run: (ctx, args) => {
+      const tarefa = String(args.tarefa ?? '');
+      const pendingTasks = getPendingTasksForToday(ctx.tasks, ctx.person.person_id, ctx.today);
+      const pendingAuto = getPendingAutoForToday(ctx.designated, ctx.person.person_id, ctx.logicalToday);
+      const combined = buildCombinedList(pendingTasks, pendingAuto, ctx.autoTask);
+      const intent: Intent = tarefa ? { type: 'done', query: tarefa } : { type: 'done' };
+      const r = resolveTargets(intent, combined);
+      if (r.emptyList) return { tarefas_encontradas: 'Você não tem tarefas pendentes hoje.' };
+      if (r.ambiguous.length > 0) return { tarefas_nome_semelhante: r.ambiguous.map((t) => t.descricao) };
+      if (r.targets.length === 0) return { tarefas_encontradas: 'Nenhuma tarefa encontrada com esse nome' };
+      setPending(ctx.person.whatsapp_e164, { kind: 'command', intent });
+      const descricoes = r.targets.map((t) => t.descricao);
+      if (r.markedAll) return { todas_as_tarefas: true, tarefa_a_confirmar: descricoes };
+      return { tarefa_a_confirmar: descricoes };
+    }
+  }
 };
 
 export const functionDeclarations = Object.values(registry).map((r) => r.declaration);

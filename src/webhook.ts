@@ -264,7 +264,12 @@ async function handleOneMessage(
         break;
       }
       if (p.kind === 'command') {
-        reply = 'Comandos confirmáveis ainda não suportados.';
+        const cmdIntent = p.intent;
+        if (cmdIntent.type === 'done') {
+          ({ reply, relatedKey, notices } = handleDone(tasks, designated, autoTask, people, cmdIntent, combined, person, today, logicalToday, changed, autoChanged, relatedKey));
+        } else if (cmdIntent.type === 'skip') {
+          ({ reply, relatedKey } = handleSkip(tasks, designated, autoTask, cmdIntent, combined, person, today, logicalToday, changed, autoChanged, relatedKey));
+        }
         clearPending(person.whatsapp_e164);
         break;
       }
