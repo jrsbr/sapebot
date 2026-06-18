@@ -4,6 +4,7 @@ import { logger } from "./logger";
 import { formatHelpText } from "./messaging";
 import { LlmContext, MessageRow } from "./types";
 import { brPhoneKey } from "./tasks";
+import { weekdayName } from "./time";
 import { functionDeclarations, runTool } from "./llmtools";
 
 const MAX_LLM_ITER = 5;
@@ -56,7 +57,7 @@ export async function askLlm(
 ): Promise<string | null> {
     if (env.GEMINI_API_KEY === '') return null;
 
-    const sysPrompt = { parts: [{ text: SYSTEM_PROMPT }] };
+    const sysPrompt = { parts: [{ text: `${SYSTEM_PROMPT}\n\nData de hoje: ${ctx.today} (${weekdayName(ctx.today)}).` }] };
     const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
     const config = { maxOutputTokens: 800, temperature: 0.6, thinkingConfig: { thinkingBudget: 512 } };
     
