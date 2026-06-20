@@ -26,7 +26,7 @@ export function successRate (
     pending: number,
 ): number {
     if (done + pending + missed === 0) return 0; // Prioridade máxima para quem não fez nada
-    return (done + pending) / (done + pending + missed)
+    return (done + 2 * pending) / (done + 2 * pending + missed)
 }
 
 export function countDoneByTaskPerson (
@@ -54,17 +54,17 @@ export function selectDayAssignments(
   if (pool.length < 2) return [];
   let metrics = pool.map((p) => {
     const { done, missed, pending } = countInWindow(designated, p.person_id,cut);
-    return { person_id: p.person_id, done, rate: successRate(done, missed, pending) };
+    return { person_id: p.person_id, done, pending, rate: successRate(done, missed, pending) };
     })
 
   const A = metrics.sort((a, b) => 
-    a.done - b.done ||
+    a.done + a.pending - b.done - b.pending ||
     a.rate - b.rate ||
     a.person_id.localeCompare(b.person_id))[0];
 
   const rateSorted = metrics.sort((a, b) => 
     a.rate - b.rate ||
-    a.done - b.done ||
+    a.done + a.pending - b.done - b.pending ||
     a.person_id.localeCompare(b.person_id));
   let B = rateSorted[0];
   if (B.person_id === A.person_id) B = rateSorted[1];
