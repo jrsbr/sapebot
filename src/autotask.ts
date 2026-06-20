@@ -26,7 +26,7 @@ export function successRate (
     pending: number,
 ): number {
     if (done + pending + missed === 0) return 0; // Prioridade máxima para quem não fez nada
-    return (done + pending) / (done + pending + missed)
+    return (done + 2 * pending) / (done + 2 * pending + missed)
 }
 
 export function countDoneByTaskPerson (
