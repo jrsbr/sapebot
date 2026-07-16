@@ -42,9 +42,15 @@ const schema = z.object({
     // ===== Admin via WhatsApp =====
   ADMIN_PHONES: z.string().default(''), // E.164 separados por vírgula
 
-  // ===== Chamada do Gemini ==== 
+  // ===== Chamada do Gemini ====
   GEMINI_API_KEY: z.string().default(''),
   GEMINI_MODEL: z.string().default('gemini-2.5-flash-lite'),
+
+  // ===== Flight tracker (uso pessoal, temporário) =====
+  FLIGHT_TRACKER_ENABLED: z.coerce.boolean().default(true),
+  FLIGHT_ALERT_PHONE: z.string().default(''), // E.164; vazio = feature no-op
+  SERPAPI_KEY: z.string().default(''),
+  FLIGHTS_SPREADSHEET_ID: z.string().default(''),
 });
 
 export type AppConfig = z.infer<typeof schema>;

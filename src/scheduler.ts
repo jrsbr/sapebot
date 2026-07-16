@@ -17,6 +17,9 @@ import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildO
 import type { Person, Task, MessageRow, SendResult, AutoTask, Designated } from './types'
 import { expiredPendingDesignated, fullWeekAssignments } from './autotask';
 import { buildCombinedList, genericTaskKey } from './generictask';
+import { loadRoutes, updateBestPrice, appendPriceLog } from './flightsheets';
+import { searchFlightPrice } from './serpapi';
+import { decideAlert, buildRouteLine, pickDateForToday } from './flighttracker';
 
 function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
   const v = cfg[key];
@@ -252,6 +255,61 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
   return { generated: appendWork ? newDesignated.length : 0, partial: partialDays };
 }
 
+// ===== Flight tracker (uso pessoal, temporário) =====
+
+// Checagem única diária: busca todas as rotas ativas, registra preço, atualiza melhor histórico
+// e manda UMA mensagem consolidada (evita spam de várias mensagens por rota).
+export async function runFlightDailyCheck(): Promise<void> {
+  if (!env.FLIGHT_TRACKER_ENABLED || !env.FLIGHT_ALERT_PHONE) return;
+
+  let routes;
+  try {
+    routes = await loadRoutes();
+  } catch (err) {
+    logger.error('Falha ao carregar rotas de voo', { error: (err as Error).message });
+    return;
+  }
+
+  const ativas = routes.filter((r) => r.ativo);
+  if (ativas.length === 0) return;
+
+  const timestamp = nowIso();
+  const hoje = localDate(env.DEFAULT_TIMEZONE);
+  const linhas: string[] = [];
+
+  for (const route of ativas) {
+    const dataAlvo = pickDateForToday(route, hoje);
+    const preco = await searchFlightPrice(route.origem, route.destino, dataAlvo, route.moeda);
+    if (preco === null) {
+      linhas.push(`${route.origem} → ${route.destino} (${dataAlvo}): sem cotação hoje.`);
+      continue;
+    }
+
+    try {
+      await appendPriceLog({
+        timestamp, origem: route.origem, destino: route.destino, data: dataAlvo, preco, moeda: route.moeda,
+      });
+    } catch (err) {
+      logger.error('Falha ao registrar preço de voo', { error: (err as Error).message });
+    }
+
+    const decision = decideAlert(route, dataAlvo, preco);
+
+    if (decision.isNewBest) {
+      try {
+        await updateBestPrice({ ...route, melhorAteAgora: preco });
+      } catch (err) {
+        logger.error('Falha ao atualizar melhor preço de voo', { error: (err as Error).message });
+      }
+    }
+
+    linhas.push(buildRouteLine(route, dataAlvo, preco, decision));
+  }
+
+  const result = await sendText(env.FLIGHT_ALERT_PHONE, linhas.join('\n'));
+  if (!result.ok) logger.warn('Falha ao enviar resumo diário de voo', { error: result.error });
+}
+
 export function startScheduler(): void {
   const schedule = (hour: number, minute: number, slot: string) => {
     const expr = `${minute} ${hour} * * *`;
@@ -321,6 +379,17 @@ export function startScheduler(): void {
       }
     },
     { timezone: env.DEFAULT_TIMEZONE},
+  );
+
+  // Flight tracker: checagem única às 10h, uma mensagem consolidada.
+  cron.schedule(
+    '0 10 * * *',
+    () => {
+      runFlightDailyCheck().catch((err) =>
+        logger.error('Erro não tratado na checagem de voo', { error: (err as Error).message }),
+      );
+    },
+    { timezone: env.DEFAULT_TIMEZONE },
   );
 }
 
