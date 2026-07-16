@@ -167,7 +167,39 @@ export interface LlmContext {
   tasks: Task[];
   designated: Designated[];
   autoTask: AutoTask[];
-  person: Person;      
+  person: Person;
   today: string;
   logicalToday: string;
+}
+
+// ===== Flight tracker (uso pessoal, temporário) =====
+
+export interface FlightRoute {
+  __row: number;
+  origem: string;
+  destino: string;
+  dataInicio: string; // YYYY-MM-DD
+  dataFim: string; // YYYY-MM-DD; igual a dataInicio quando a rota é de data fixa
+  moeda: string;
+  thresholdBom: number;
+  thresholdCaro: number;
+  melhorAteAgora: number | null;
+  ativo: boolean;
+}
+
+export interface FlightPriceLog {
+  timestamp: string;
+  origem: string;
+  destino: string;
+  data: string;
+  preco: number;
+  moeda: string;
+}
+
+export type FlightAlertKind = 'novo_melhor' | 'abaixo_sempre' | 'caro' | 'nada';
+
+export interface FlightAlertDecision {
+  kind: FlightAlertKind;
+  isNewBest: boolean;
+  message: string;
 }
