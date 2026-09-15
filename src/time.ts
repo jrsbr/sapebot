@@ -58,6 +58,12 @@ export function weekdayName(ymd: string): string {
   return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', timeZone: 'UTC' }).format(d);
 }
 
+export function weekdayIndex(ymd: string): number {
+  const d = new Date(`${ymd}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return -1;
+  return d.getUTCDay();
+}
+
 export function localHour(tz: string, date: Date = new Date()): number {
   const s = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,

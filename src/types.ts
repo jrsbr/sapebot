@@ -69,6 +69,7 @@ export interface AutoTask {
   __row: number;
   task_id: string;
   descricao: string;
+  tipo: 'pool' | 'fixo';
 }
 
 export interface Designation {
@@ -76,6 +77,12 @@ export interface Designation {
   task_id: string;
   person_id: string;
   count: number;
+}
+
+export interface WalkSlot {
+  __row: number;
+  dia_semana: number; // 0=domingo ... 6=sábado
+  person_id: string;
 }
 
 export interface Designated {

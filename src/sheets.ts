@@ -1,7 +1,7 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus } from './types';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot } from './types';
 import { logger } from './logger';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -15,6 +15,7 @@ export const TAB = {
   mensagens: 'Mensagens',
   bomdia: 'Bomdia',
   config: 'Config',
+  cachorro: 'Cachorro',
 } as const;
 
 const PESSOAS_HEADER = [
@@ -32,7 +33,7 @@ const MSG_HEADER = [
 ];
 
 const AUTOTASK_HEADER = [
-  'task_id', 'descricao',
+  'task_id', 'descricao', 'tipo',
 ]
 
 const DESIGNATION_HEADER = [
@@ -44,6 +45,8 @@ const DESIGNATED_HEADER = [
 ]
 
 const BOMDIA_HEADER = ['frase'];
+
+const CACHORRO_HEADER = ['dia_semana', 'person_id'];
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 const headerCache: Record<string, string[]> = {};
@@ -91,6 +94,11 @@ function asAutoStatus(v: string): AutoTaskStatus {
   if (s === 'pending') return 'pending';
   if (s !== '') logger.warn(`status auto inválido: "${v}", assumindo pending`);
   return 'pending';
+}
+function asAutoTaskTipo(v: string): 'pool' | 'fixo' {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'fixo') return 'fixo';
+  return 'pool';
 }
 
 function personToValues(p: Person): Record<string, string> {
@@ -147,6 +155,7 @@ function autoTaskToValues(t: AutoTask): Record<string, string> {
   return {
     task_id: t.task_id,
     descricao: t.descricao,
+    tipo: t.tipo,
   };
 }
 
@@ -309,8 +318,30 @@ export async function loadAutoTasks(): Promise<AutoTask[]> {
     __row: r.__row,
     task_id: r.values['task_id'] ?? '',
     descricao: r.values['descricao'] ?? '',
+    tipo: asAutoTaskTipo(r.values['tipo'] ?? ''),
   }))
   .filter((r) => ((r.task_id ?? '').trim() !== ''));
+}
+
+export async function loadWalkSlots(): Promise<WalkSlot[]> {
+  const { header, rows } = await loadTable(TAB.cachorro);
+  headerCache[TAB.cachorro] = header;
+  return rows
+    .map((r) => {
+      const dia = parseInt(r.values['dia_semana'] ?? '', 10);
+      return {
+        __row: r.__row,
+        dia_semana: dia,
+        person_id: (r.values['person_id'] ?? '').trim(),
+      };
+    })
+    .filter((r) => {
+      if (r.person_id === '' || Number.isNaN(r.dia_semana) || r.dia_semana < 0 || r.dia_semana > 6) {
+        logger.warn(`Linha inválida na aba Cachorro (row ${r.__row}), ignorando.`);
+        return false;
+      }
+      return true;
+    });
 }
 
 export async function loadDesignation(): Promise<Designation[]> {
