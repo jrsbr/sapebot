@@ -1,5 +1,5 @@
-import { addDays } from "./time";
-import type { Person, AutoTask, Designated } from "./types";
+import { addDays, daysBetween, weekdayIndex } from "./time";
+import type { Person, AutoTask, Designated, WalkSlot } from "./types";
 
 export function expiredPendingDesignated (
     designateds: Designated[],
@@ -135,6 +135,52 @@ export function fullWeekAssignments(
         newDesignated.push(...dayDesignated);
     }
     return { newDesignated, partialDays };
+}
+
+const WALK_EPOCH = '2026-01-05'; // segunda-feira, referência arbitrária para a rotação
+export function walkRotationIndex(ymd: string, size: number): number {
+  if (size <= 0) return 0;
+  const diff = daysBetween(WALK_EPOCH, ymd);
+  const week = Math.floor(diff / 7);
+  return ((week % size) + size) % size;
+}
+
+export function walkSlotsForWeekday(slots: WalkSlot[], weekday: number): WalkSlot[] {
+  return slots.filter((s) => s.dia_semana === weekday);
+}
+
+export function fixedWalkAssignments(
+  slots: WalkSlot[],
+  people: Person[],
+  designated: Designated[],
+  taskId: string,
+  today: string,
+): { newDesignated: Designated[]; skipped: { data: string; motivo: string }[] } {
+  const newDesignated: Designated[] = [];
+  const skipped: { data: string; motivo: string }[] = [];
+  for (let i = 0; i < 7; i++) {
+    const data = addDays(today, i);
+    if (designated.some((d) => d.data === data && d.task_id === taskId)) continue;
+    const weekday = weekdayIndex(data);
+    const dayList = walkSlotsForWeekday(slots, weekday);
+    if (dayList.length === 0) {
+      skipped.push({ data, motivo: 'sem escala' });
+      continue;
+    }
+    const idx = walkRotationIndex(data, dayList.length);
+    const slot = dayList[idx];
+    const person = people.find((p) => p.person_id === slot.person_id);
+    if (!person) {
+      skipped.push({ data, motivo: 'pessoa desconhecida' });
+      continue;
+    }
+    if (person.ferias || !person.ativo || !person.opt_in) {
+      skipped.push({ data, motivo: 'indisponível' });
+      continue;
+    }
+    newDesignated.push({ data, task_id: taskId, person_id: person.person_id, status: 'pending' });
+  }
+  return { newDesignated, skipped };
 }
 
 export function getPendingAutoForToday(
