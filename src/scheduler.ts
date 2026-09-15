@@ -6,7 +6,7 @@ import { nowIso, localDate, logicalDate, addDays } from './time';
 import {
   loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, dumpTab,
   loadDesignated, saveDesignated, TAB, overwriteTab,
-  loadAutoTasks,
+  loadAutoTasks, loadWalkSlots,
   appendDesignateds
 } from './sheets';
 import {
@@ -15,7 +15,7 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
 import type { Person, Task, MessageRow, SendResult, AutoTask, Designated } from './types'
-import { expiredPendingDesignated, fullWeekAssignments } from './autotask';
+import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments } from './autotask';
 import { buildCombinedList, genericTaskKey } from './generictask';
 import { loadRoutes, updateBestPrice, appendPriceLog } from './flightsheets';
 import { searchFlightPrice } from './serpapi';
@@ -232,9 +232,10 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
     loadAutoTasks(),
   ]);
   const pool = people.filter((p) => p.ativo === true && p.opt_in === true && p.ferias === false);
+  const poolTasks = autoTask.filter((a) => a.tipo !== 'fixo');
   const today = logicalDate(env.DEFAULT_TIMEZONE);
   const cut = addDays(today, -60);
-  const { newDesignated, partialDays } = fullWeekAssignments(pool, autoTask, designated, today, cut);
+  const { newDesignated, partialDays } = fullWeekAssignments(pool, poolTasks, designated, today, cut);
   let appendWork = false;
   
   if (newDesignated.length > 0) {
@@ -253,6 +254,37 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
   }
 
   return { generated: appendWork ? newDesignated.length : 0, partial: partialDays };
+}
+
+export async function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; motivo: string }[] }> {
+  const [designated, people, autoTask, slots] = await Promise.all([
+    loadDesignated(),
+    loadPeople(),
+    loadAutoTasks(),
+    loadWalkSlots(),
+  ]);
+  const walkTask = autoTask.find((a) => a.tipo === 'fixo');
+  if (!walkTask) {
+    logger.warn('Nenhuma AutoTask com tipo=fixo cadastrada; passeio do cachorro não será gerado.');
+    return { generated: 0, skipped: [] };
+  }
+  const today = logicalDate(env.DEFAULT_TIMEZONE);
+  const { newDesignated, skipped } = fixedWalkAssignments(slots, people, designated, walkTask.task_id, today);
+
+  if (newDesignated.length > 0) {
+    try {
+      await appendDesignateds(newDesignated);
+    } catch (err) {
+      logger.error('Ocorreu um erro ao adicionar as designações de passeio do cachorro.', { error: (err as Error).message });
+      return { generated: 0, skipped };
+    }
+  }
+
+  if (skipped.length > 0) {
+    logger.warn(`Dias sem designação de passeio: ${skipped.map((s) => `${s.data} (${s.motivo})`).join(', ')}.`);
+  }
+
+  return { generated: newDesignated.length, skipped };
 }
 
 // ===== Flight tracker (uso pessoal, temporário) =====
@@ -376,6 +408,13 @@ export function startScheduler(): void {
       }
       catch (err) {
           logger.error('Erro ao carregar a planilha na geração de tarefas automáticas.', { error: (err as Error).message});
+      }
+      try {
+        const { generated, skipped } = await runWalkGeneration();
+        logger.info(`Geração de passeio do cachorro: ${generated} criadas, ${skipped.length} dias sem designação.`);
+      }
+      catch (err) {
+        logger.error('Erro ao carregar a planilha na geração do passeio do cachorro.', { error: (err as Error).message });
       }
     },
     { timezone: env.DEFAULT_TIMEZONE},
