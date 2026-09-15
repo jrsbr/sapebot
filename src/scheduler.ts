@@ -257,17 +257,17 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
 }
 
 export async function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; motivo: string }[] }> {
-  const [designated, people, autoTask, slots] = await Promise.all([
-    loadDesignated(),
-    loadPeople(),
-    loadAutoTasks(),
-    loadWalkSlots(),
-  ]);
+  const autoTask = await loadAutoTasks();
   const walkTask = autoTask.find((a) => a.tipo === 'fixo');
   if (!walkTask) {
     logger.warn('Nenhuma AutoTask com tipo=fixo cadastrada; passeio do cachorro não será gerado.');
     return { generated: 0, skipped: [] };
   }
+  const [designated, people, slots] = await Promise.all([
+    loadDesignated(),
+    loadPeople(),
+    loadWalkSlots(),
+  ]);
   const today = logicalDate(env.DEFAULT_TIMEZONE);
   const { newDesignated, skipped } = fixedWalkAssignments(slots, people, designated, walkTask.task_id, today);
 
