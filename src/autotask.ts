@@ -153,32 +153,35 @@ export function fixedWalkAssignments(
   slots: WalkSlot[],
   people: Person[],
   designated: Designated[],
-  taskId: string,
+  taskIds: string[],
   today: string,
-): { newDesignated: Designated[]; skipped: { data: string; motivo: string }[] } {
+): { newDesignated: Designated[]; skipped: { data: string; task_id: string; motivo: string }[] } {
   const newDesignated: Designated[] = [];
-  const skipped: { data: string; motivo: string }[] = [];
+  const skipped: { data: string; task_id: string; motivo: string }[] = [];
   for (let i = 0; i < 7; i++) {
     const data = addDays(today, i);
-    if (designated.some((d) => d.data === data && d.task_id === taskId)) continue;
     const weekday = weekdayIndex(data);
     const dayList = walkSlotsForWeekday(slots, weekday);
-    if (dayList.length === 0) {
-      skipped.push({ data, motivo: 'sem escala' });
-      continue;
+    const baseIdx = dayList.length > 0 ? walkRotationIndex(data, dayList.length) : 0;
+    for (let t = 0; t < taskIds.length; t++) {
+      const taskId = taskIds[t];
+      if (designated.some((d) => d.data === data && d.task_id === taskId)) continue;
+      if (dayList.length === 0) {
+        skipped.push({ data, task_id: taskId, motivo: 'sem escala' });
+        continue;
+      }
+      const slot = dayList[(baseIdx + t) % dayList.length];
+      const person = people.find((p) => p.person_id === slot.person_id);
+      if (!person) {
+        skipped.push({ data, task_id: taskId, motivo: 'pessoa desconhecida' });
+        continue;
+      }
+      if (person.ferias || !person.ativo || !person.opt_in) {
+        skipped.push({ data, task_id: taskId, motivo: 'indisponível' });
+        continue;
+      }
+      newDesignated.push({ data, task_id: taskId, person_id: person.person_id, status: 'pending' });
     }
-    const idx = walkRotationIndex(data, dayList.length);
-    const slot = dayList[idx];
-    const person = people.find((p) => p.person_id === slot.person_id);
-    if (!person) {
-      skipped.push({ data, motivo: 'pessoa desconhecida' });
-      continue;
-    }
-    if (person.ferias || !person.ativo || !person.opt_in) {
-      skipped.push({ data, motivo: 'indisponível' });
-      continue;
-    }
-    newDesignated.push({ data, task_id: taskId, person_id: person.person_id, status: 'pending' });
   }
   return { newDesignated, skipped };
 }
