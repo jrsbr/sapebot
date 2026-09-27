@@ -256,11 +256,11 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
   return { generated: appendWork ? newDesignated.length : 0, partial: partialDays };
 }
 
-export async function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; motivo: string }[] }> {
+export async function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; task_id: string; motivo: string }[] }> {
   const autoTask = await loadAutoTasks();
-  const walkTask = autoTask.find((a) => a.tipo === 'fixo');
-  if (!walkTask) {
-    logger.warn('Nenhuma AutoTask com tipo=fixo cadastrada; passeio do cachorro não será gerado.');
+  const walkTasks = autoTask.filter((a) => a.tipo === 'fixo').sort((a, b) => a.task_id.localeCompare(b.task_id));
+  if (walkTasks.length === 0) {
+    logger.warn('Nenhuma AutoTask com tipo=fixo cadastrada; tarefas de escala fixa não serão geradas.');
     return { generated: 0, skipped: [] };
   }
   const [designated, people, slots] = await Promise.all([
@@ -269,19 +269,20 @@ export async function runWalkGeneration(): Promise<{ generated: number; skipped:
     loadWalkSlots(),
   ]);
   const today = logicalDate(env.DEFAULT_TIMEZONE);
-  const { newDesignated, skipped } = fixedWalkAssignments(slots, people, designated, walkTask.task_id, today);
+  const taskIds = walkTasks.map((w) => w.task_id);
+  const { newDesignated, skipped } = fixedWalkAssignments(slots, people, designated, taskIds, today);
 
   if (newDesignated.length > 0) {
     try {
       await appendDesignateds(newDesignated);
     } catch (err) {
-      logger.error('Ocorreu um erro ao adicionar as designações de passeio do cachorro.', { error: (err as Error).message });
+      logger.error('Ocorreu um erro ao adicionar as designações de escala fixa.', { error: (err as Error).message });
       return { generated: 0, skipped };
     }
   }
 
   if (skipped.length > 0) {
-    logger.warn(`Dias sem designação de passeio: ${skipped.map((s) => `${s.data} (${s.motivo})`).join(', ')}.`);
+    logger.warn(`Designações de escala fixa não geradas: ${skipped.map((s) => `${s.data} [${s.task_id}] (${s.motivo})`).join(', ')}.`);
   }
 
   return { generated: newDesignated.length, skipped };
