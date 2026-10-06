@@ -129,7 +129,7 @@ export function formatLetterAmbiguous(nomes: string[]): string {
 }
 
 export function formatLetterNotFound(): string {
-  return 'Não encontrei ninguém com esse nome. Confira o nome e tente de novo.';
+  return 'Não encontrei ninguém com esse nome. Confira o nome e tente de novo.\nPara enviar: carta <nome> <mensagem>';
 }
 
 export function formatLetterTooLong(len: number, max: number): string {

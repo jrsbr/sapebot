@@ -52,7 +52,7 @@ export function parseMessage(text: string): Intent {
 }
 
 function buildLetterIntent(raw: string): Intent {
-  const rest = raw.trim().replace(/^\S+\s*/, '');
+  const rest = raw.trim().replace(/^\S+\s*/, '').replace(/^(?:para|pra|pro)\s+/i, '');
   if (!rest) return { type: 'letters' };
   const m = /^@?([^\s:;,]*)[:;,]*\s*([\s\S]*)$/.exec(rest);
   return { type: 'letter', recipient: m?.[1] ?? '', text: (m?.[2] ?? '').trim() };
