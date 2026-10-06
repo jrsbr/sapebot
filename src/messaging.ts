@@ -1,4 +1,4 @@
-import type { Person, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated, AdminError } from './types';
+import type { Person, Letter, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated, AdminError } from './types';
 import { nowIso, isoToLocalDate, weekdayName } from './time';
 
 // ===== Formatação de mensagens =====
@@ -12,12 +12,29 @@ export function formatTaskListSingleLine(tasks: GenericTask[]): string {
   return tasks.map((t, i) => `${i + 1}) ${t.descricao}`).join(' | ');
 }
 
-export function formatReminderText(nome: string, tasks: GenericTask[]): string {
+export const LETTER_NOTICE = '* Você tem mensagens não lidas. Envie "cartas" para ler.';
+const LETTER_NOTICE_SINGLE_LINE = '* Você tem mensagens não lidas (envie "cartas")';
+
+export function buildTaskListParam(tasks: GenericTask[], hasLetters: boolean): string {
+  const base = tasks.length > 0 ? formatTaskListSingleLine(tasks) : 'Nenhuma tarefa hoje';
+  return hasLetters ? `${base} | ${LETTER_NOTICE_SINGLE_LINE}` : base;
+}
+
+export function formatLettersOnlyMorningText(phrase: string): string {
+  return `${phrase}\n\n${LETTER_NOTICE}`;
+}
+
+export function formatReminderText(
+  nome: string,
+  tasks: GenericTask[],
+  hasLetters = false,
+): string {
   return [
     `Oi, ${nome}. Suas tarefas de hoje são:`,
     '',
     formatTaskListMultiline(tasks),
     '',
+    ...(hasLetters ? [LETTER_NOTICE, ''] : []),
     'Responda:',
     '- "feito 1" para marcar uma tarefa como concluída',
     '- "feito" se todas já foram feitas',
@@ -50,8 +67,73 @@ export function formatHelpText(): string {
     '- "semana" → gera um calendário das tarefas da sua semana',
     '- "ferias" → entra de férias',
     '- "voltar ferias" → volta de férias',
+    '- "carta <nome> <mensagem>" → deixa uma carta para um morador (ele recebe o aviso no lembrete da manhã seguinte)',
+    '- "cartas" → lê suas cartas novas',
     '- "ajuda" → mostra esta mensagem',
   ].join('\n');
+}
+
+const pluralCartas = (n: number, one: string, many: string) => (n === 1 ? one : many);
+
+export function formatLettersReply(
+  letters: Letter[],
+  people: Person[],
+  tz: string,
+  maxChars = 3500,
+): { text: string; shown: Letter[]; remaining: number } {
+  if (letters.length === 0) {
+    return { text: 'Você não tem cartas novas.', shown: [], remaining: 0 };
+  }
+  const total = letters.length;
+  const header = `Você tem ${total} ${pluralCartas(total, 'carta nova', 'cartas novas')}:`;
+  const blocks = letters.map((l) => {
+    const nome = people.find((p) => p.person_id === l.de_person_id)?.nome ?? 'alguém';
+    const ymd = isoToLocalDate(l.criada_em, tz);
+    const date = ymd ? ` (${ymd.slice(8, 10)}/${ymd.slice(5, 7)})` : '';
+    return `De ${nome}${date}:\n${l.texto}`;
+  });
+  const footerFor = (remaining: number) =>
+    remaining > 0
+      ? `Há mais ${remaining} ${pluralCartas(remaining, 'carta', 'cartas')}. Envie "cartas" de novo para ler.`
+      : '';
+  const build = (count: number) => {
+    const footer = footerFor(total - count);
+    return [header, ...blocks.slice(0, count), ...(footer ? [footer] : [])].join('\n\n');
+  };
+  let count = 1;
+  while (count < total && build(count + 1).length <= maxChars) count++;
+  return { text: build(count), shown: letters.slice(0, count), remaining: total - count };
+}
+
+export function formatLetterSent(
+  destNome: string,
+  dayLabel: 'hoje' | 'amanhã',
+  hour: number,
+  minute: number,
+): string {
+  const hh = String(hour).padStart(2, '0');
+  const mm = String(minute).padStart(2, '0');
+  return `Carta para ${destNome} registrada. Ela chega no aviso das ${hh}:${mm} de ${dayLabel}.`;
+}
+
+export function formatLetterUsage(): string {
+  return 'Para enviar: carta <nome> <mensagem>\nExemplo: carta Carlos o jantar é às 20h\nPara ler suas cartas: cartas';
+}
+
+export function formatLetterConfirm(destNome: string): string {
+  return `Você quis dizer ${destNome}? Responda "sim" para enviar a carta ou "não" para cancelar.`;
+}
+
+export function formatLetterAmbiguous(nomes: string[]): string {
+  return `Mais de uma pessoa parecida: ${nomes.join(', ')}. Envie de novo com o nome completo.`;
+}
+
+export function formatLetterNotFound(): string {
+  return 'Não encontrei ninguém com esse nome. Confira o nome e tente de novo.';
+}
+
+export function formatLetterTooLong(len: number, max: number): string {
+  return `Carta muito longa (máx. ${max} caracteres; a sua tem ${len}).`;
 }
 
 export function buildInboundRow(
