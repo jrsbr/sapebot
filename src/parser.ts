@@ -52,11 +52,10 @@ export function parseMessage(text: string): Intent {
 }
 
 function buildLetterIntent(raw: string): Intent {
-  const m = /^\S+\s+(\S+)(?:\s+([\s\S]*))?$/.exec(raw.trim());
-  if (!m) return { type: 'letters' };
-  const recipient = m[1].replace(/^@/, '').replace(/[,:;]+$/, '');
-  const text = (m[2] ?? '').trim();
-  return { type: 'letter', recipient, text };
+  const rest = raw.trim().replace(/^\S+\s*/, '');
+  if (!rest) return { type: 'letters' };
+  const m = /^@?([^\s:;,]*)[:;,]*\s*([\s\S]*)$/.exec(rest);
+  return { type: 'letter', recipient: m?.[1] ?? '', text: (m?.[2] ?? '').trim() };
 }
 
 // Monta o Intent dos tipos 'done' e 'skip', levando em conta se usam
