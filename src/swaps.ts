@@ -15,13 +15,17 @@ const WEEKDAYS = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 's
 const DMY_RE = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2}|\d{4}))?$/;
 const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
+const WEEKDAY_ABBR = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'];
+
 function weekdayOf(token: string): number {
-  return WEEKDAYS.indexOf(normalizeText(token).replace(/-feira$/, ''));
+  const t = normalizeText(token).replace(/-feira$/, '');
+  const i = WEEKDAYS.indexOf(t);
+  return i >= 0 ? i : WEEKDAY_ABBR.indexOf(t);
 }
 
 function isDayToken(token: string): boolean {
   const t = normalizeText(token);
-  return t === 'hoje' || t === 'amanha' || weekdayOf(t) >= 0 || DMY_RE.test(t) || ISO_RE.test(t);
+  return t === 'hoje' || t === 'amanha' || t === 'ontem' || weekdayOf(t) >= 0 || DMY_RE.test(t) || ISO_RE.test(t);
 }
 
 export function parseSwapRequest(raw: string): ParsedSwap | null {
