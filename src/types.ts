@@ -93,6 +93,16 @@ export interface Designated {
   status: AutoTaskStatus;
 }
 
+export interface Letter {
+  __row: number;
+  letter_id: string;
+  de_person_id: string;
+  para_person_id: string;
+  texto: string;
+  criada_em: string;
+  lida_em: string;
+}
+
 export interface GenericTaskBase {
   __row?: number,
   task_id: string;
@@ -116,7 +126,9 @@ export type Intent =
   | { type: 'calendar'}
   | { type: 'bomdia' }
   | { type: 'confirm' }
-  | { type: 'cancel' };
+  | { type: 'cancel' }
+  | { type: 'letter'; recipient: string; text: string }
+  | { type: 'letters' };
   
 export interface ResolveResult {
   targets: GenericTask[];

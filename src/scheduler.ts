@@ -7,14 +7,16 @@ import {
   loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, dumpTab,
   loadDesignated, saveDesignated, TAB, overwriteTab,
   loadAutoTasks, loadWalkSlots,
-  appendDesignateds
+  appendDesignateds, loadLetters, deleteRows, loadGMPhrases
 } from './sheets';
+import { lettersToPurge, unreadDelivered } from './letters';
+import type { DeliveryClock } from './letters';
 import {
   getPendingTasksForToday, rolloverRecurringTasks,dedupeByRow
 } from './tasks';
 import { sendText, sendTemplate } from './whatsapp';
-import { formatReminderText, formatNoTasksText, formatTaskListSingleLine, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
-import type { Person, Task, MessageRow, SendResult, AutoTask, Designated } from './types'
+import { formatReminderText, formatNoTasksText, buildTaskListParam, formatLettersOnlyMorningText, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
+import type { Person, Task, MessageRow, SendResult, AutoTask, Designated, Letter } from './types'
 import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments } from './autotask';
 import { buildCombinedList, genericTaskKey } from './generictask';
 import { loadRoutes, updateBestPrice, appendPriceLog } from './flightsheets';
@@ -46,6 +48,13 @@ export async function pruneOldMessages(hours = 48): Promise<number> {
   const removed = matrix.length - 1 - kept.length;
   if (removed > 0) await overwriteTab(TAB.mensagens, [header, ...kept]);
   return removed;
+}
+
+export async function purgeOldLetters(): Promise<number> {
+  const letters = await loadLetters();
+  const old = lettersToPurge(letters, new Date());
+  await deleteRows(TAB.cartas, old.map((l) => l.__row));
+  return old.length;
 }
 
 export async function purgeOldDoneOnceTasks(days = 14): Promise<number> {
@@ -118,6 +127,27 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
   let skipped = 0;
   let errors = 0;
   const logicalToday = logicalDate(env.DEFAULT_TIMEZONE);
+  const clock: DeliveryClock = { tz: env.DEFAULT_TIMEZONE, hour: env.REMINDER_HOUR, minute: env.REMINDER_MINUTE };
+  const runNow = new Date();
+  let letters: Letter[] = [];
+  if (slot === 'manha') {
+    try {
+      letters = await loadLetters();
+    } catch (err) {
+      logger.error('Falha ao carregar cartas; lembretes seguem sem aviso de cartas', { error: (err as Error).message });
+    }
+  }
+  let phrases: string[] | null = null;
+  const pickPhrase = async (nome: string): Promise<string> => {
+    if (phrases === null) {
+      try {
+        phrases = await loadGMPhrases();
+      } catch {
+        phrases = [];
+      }
+    }
+    return phrases.length > 0 ? phrases[Math.floor(Math.random() * phrases.length)] : `Bom dia, ${nome}!`;
+  };
 
   for (const person of people) {
     if (!person.ativo || !person.opt_in) continue;
@@ -130,9 +160,38 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
       d.status === 'pending'
     );
     const combined = buildCombinedList(pending, autoPending, autoTasks);
+    const hasLetters = slot === 'manha' && unreadDelivered(letters, person.person_id, runNow, clock).length > 0;
 
     // 4) Sem tarefas: só envia se configurado.
     if (combined.length === 0) {
+      if (hasLetters) {
+        const lettersKey = `${slot}:cartas`;
+        if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, lettersKey, tz)) {
+          skipped++;
+          continue;
+        }
+        let lettersResult: SendResult;
+        let lettersBody: string;
+        if (within24h(messages, person.person_id)) {
+          lettersBody = formatLettersOnlyMorningText(await pickPhrase(person.nome));
+          lettersResult = await sendText(person.whatsapp_e164, lettersBody);
+        } else {
+          const list = buildTaskListParam([], true);
+          lettersBody = `[template:${env.WHATSAPP_TEMPLATE_TASKS}] nome=${person.nome} tarefas=${list}`;
+          lettersResult = await sendTemplate(person.whatsapp_e164, env.WHATSAPP_TEMPLATE_TASKS, [
+            { type: 'text', text: person.nome },
+            { type: 'text', text: list },
+          ]);
+        }
+        messagesToLog.push(buildOutboundRow(person.whatsapp_e164, person.person_id, lettersBody, 'reminder', lettersKey, lettersResult));
+        if (lettersResult.ok) {
+          sent++;
+        } else {
+          errors++;
+          logger.warn(`Falha ao enviar aviso de cartas para ${person.person_id}`, { error: lettersResult.error });
+        }
+        continue;
+      }
       if (!sendNoTask || slot !== 'manha') continue;
       const key = `${slot}:no-tasks`;
       if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
@@ -150,7 +209,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     }
 
     // 5) Idempotência: mesma lista no mesmo dia não reenvia.
-    const key = `${slot}:${genericTaskKey(combined)}`;
+    const key = `${slot}:${genericTaskKey(combined)}${hasLetters ? '+cartas' : ''}`;
     if (alreadyRemindedToday(messages.concat(messagesToLog), person.person_id, today, key, tz)) {
       logger.info(`Lembrete já enviado hoje para ${person.person_id}, pulando.`);
       skipped++;
@@ -161,10 +220,10 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     let result: SendResult;
     let bodyForLog: string;
     if (within24h(messages, person.person_id)) {
-      bodyForLog = formatReminderText(person.nome, combined);
+      bodyForLog = formatReminderText(person.nome, combined, hasLetters);
       result = await sendText(person.whatsapp_e164, bodyForLog);
     } else {
-      const list = formatTaskListSingleLine(combined);
+      const list = buildTaskListParam(combined, hasLetters);
       bodyForLog = `[template:${env.WHATSAPP_TEMPLATE_TASKS}] nome=${person.nome} tarefas=${list}`;
       result = await sendTemplate(person.whatsapp_e164, env.WHATSAPP_TEMPLATE_TASKS, [
         { type: 'text', text: person.nome },
@@ -374,6 +433,17 @@ export function startScheduler(): void {
         .then((n) => logger.info(`Tarefas once antigas removidas: ${n}.`))
         .catch((err) =>
           logger.error('Falha na limpeza de tarefas once', { error: (err as Error).message }),
+        );
+    },
+    { timezone: env.DEFAULT_TIMEZONE },
+  );
+  cron.schedule(
+    '15 4 * * *',
+    () => {
+      purgeOldLetters()
+        .then((n) => logger.info(`Cartas antigas removidas: ${n}.`))
+        .catch((err) =>
+          logger.error('Falha na limpeza de cartas', { error: (err as Error).message }),
         );
     },
     { timezone: env.DEFAULT_TIMEZONE },

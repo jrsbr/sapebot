@@ -135,7 +135,9 @@ function buildHistory (
 ): { role: 'user' | 'model', parts: { text: string }[] }[] {
     const history = messages.filter((m) =>
         brPhoneKey(m.whatsapp_e164) === brPhoneKey(phone) &&
-        m.body !== ''
+        m.body !== '' &&
+        m.parsed_intent !== 'letter' &&
+        m.parsed_intent !== 'letters'
     )
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
     .slice(-historyLimit)

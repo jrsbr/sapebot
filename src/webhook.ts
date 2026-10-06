@@ -7,21 +7,24 @@ import { nowIso, localDate, addDays, logicalDate, localHour } from './time';
 import {
   loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated,
   deleteRows, TAB,
-  savePerson, loadGMPhrases
+  savePerson, loadGMPhrases, appendLetter, loadLetters, saveLetters
 } from './sheets';
+import { resolveRecipient, unreadDelivered, deliveryDayLabel, LETTER_MAX_CHARS } from './letters';
+import type { DeliveryClock } from './letters';
 import { parseMessage, normalizeText } from './parser';
 import {
   findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage,
+  formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply
  } from './messaging';
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
-import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, AdminAdd, AdminRemove, AdminList, AdminReport, LlmContext } from './types'
+import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, LlmContext } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { askLlm } from './llm';
 import { clearPending, getPending, setPending } from './pending';
@@ -203,6 +206,7 @@ async function handleOneMessage(
   let notices: GroupDoneNotice[] = [];
   const changed: Task[] = [];
   const autoChanged: Designated[] = [];
+  const lettersToMark: Letter[] = [];
   let llmResponded = false;
   const ctx: LlmContext = {
     messages: messages,
@@ -247,6 +251,16 @@ async function handleOneMessage(
       break;
     }
 
+    case 'letter': {
+      reply = await handleLetterSend(intent, people, person);
+      break;
+    }
+
+    case 'letters': {
+      reply = await handleLettersRead(people, person, lettersToMark);
+      break;
+    }
+
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
@@ -261,6 +275,12 @@ async function handleOneMessage(
       if (p.kind === 'ferias_off') {
         reply = await handleFeriasOffConfirm(person);
         clearPending(person.whatsapp_e164);
+        break;
+      }
+      if (p.kind === 'letter') {
+        clearPending(person.whatsapp_e164);
+        const dest = people.find((x) => x.person_id === p.para_person_id);
+        reply = dest ? await deliverLetter(person, dest, p.texto) : formatLetterNotFound();
         break;
       }
       if (p.kind === 'command') {
@@ -394,6 +414,68 @@ async function handleOneMessage(
   await safeAppend(inboundRow);
   const sendResult = await sendText(person.whatsapp_e164, reply);
   await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, llmResponded ? 'llm' : relatedKey, sendResult));
+
+  if (sendResult.ok && lettersToMark.length > 0) {
+    const stamp = nowIso();
+    try {
+      await saveLetters(lettersToMark.map((l) => ({ ...l, lida_em: stamp })));
+    } catch (err) {
+      logger.error('Falha ao marcar cartas como lidas', { error: (err as Error).message });
+    }
+  }
+}
+
+function letterClock(): DeliveryClock {
+  return { tz: env.DEFAULT_TIMEZONE, hour: env.REMINDER_HOUR, minute: env.REMINDER_MINUTE };
+}
+
+async function deliverLetter(sender: Person, dest: Person, texto: string): Promise<string> {
+  try {
+    await appendLetter({
+      letter_id: crypto.randomUUID(),
+      de_person_id: sender.person_id,
+      para_person_id: dest.person_id,
+      texto,
+      criada_em: nowIso(),
+      lida_em: '',
+    });
+  } catch (err) {
+    logger.error('Falha ao registrar carta', { error: (err as Error).message });
+    return 'Não consegui registrar a carta agora. Tente de novo em instantes.';
+  }
+  const clock = letterClock();
+  return formatLetterSent(dest.nome, deliveryDayLabel(new Date(), clock), clock.hour, clock.minute);
+}
+
+async function handleLetterSend(intent: Extract<Intent, { type: 'letter' }>, people: Person[], person: Person): Promise<string> {
+  if (!intent.recipient || !intent.text) return formatLetterUsage();
+  if (intent.text.length > LETTER_MAX_CHARS) return formatLetterTooLong(intent.text.length, LETTER_MAX_CHARS);
+  const res = resolveRecipient(people, person.person_id, intent.recipient);
+  switch (res.kind) {
+    case 'none':
+      return formatLetterNotFound();
+    case 'ambiguous':
+      return formatLetterAmbiguous(res.candidates.map((c) => c.nome));
+    case 'fuzzy':
+      setPending(person.whatsapp_e164, { kind: 'letter', para_person_id: res.person.person_id, texto: intent.text });
+      return formatLetterConfirm(res.person.nome);
+    case 'exact':
+      return await deliverLetter(person, res.person, intent.text);
+  }
+}
+
+async function handleLettersRead(people: Person[], person: Person, lettersToMark: Letter[]): Promise<string> {
+  let letters: Letter[];
+  try {
+    letters = await loadLetters();
+  } catch (err) {
+    logger.error('Falha ao carregar cartas', { error: (err as Error).message });
+    return 'Não consegui abrir suas cartas agora. Tente de novo em instantes.';
+  }
+  const unread = unreadDelivered(letters, person.person_id, new Date(), letterClock());
+  const { text, shown } = formatLettersReply(unread, people, person.timezone || env.DEFAULT_TIMEZONE);
+  lettersToMark.push(...shown);
+  return text;
 }
 
 async function handleAdminAdd(

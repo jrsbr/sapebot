@@ -72,3 +72,15 @@ export function localHour(tz: string, date: Date = new Date()): number {
   }).format(date);
   return parseInt(s, 10);
 }
+
+export function localMinuteOfDay(tz: string, date: Date = new Date()): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const h = parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10) % 24;
+  const m = parseInt(parts.find((p) => p.type === 'minute')?.value ?? '0', 10);
+  return h * 60 + m;
+}

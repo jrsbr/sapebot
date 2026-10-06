@@ -1,7 +1,7 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot } from './types';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot, Letter } from './types';
 import { logger } from './logger';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -16,6 +16,7 @@ export const TAB = {
   bomdia: 'Bomdia',
   config: 'Config',
   cachorro: 'Cachorro',
+  cartas: 'Cartas',
 } as const;
 
 const PESSOAS_HEADER = [
@@ -47,6 +48,8 @@ const DESIGNATED_HEADER = [
 const BOMDIA_HEADER = ['frase'];
 
 const CACHORRO_HEADER = ['dia_semana', 'person_id'];
+
+const CARTAS_HEADER = ['letter_id', 'de_person_id', 'para_person_id', 'texto', 'criada_em', 'lida_em'];
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 const headerCache: Record<string, string[]> = {};
@@ -173,6 +176,17 @@ function designatedToValues(d: Designated): Record<string, string> {
     task_id: d.task_id,
     person_id: d.person_id,
     status: d.status,
+  };
+}
+
+function letterToValues(l: Omit<Letter, '__row'>): Record<string, string> {
+  return {
+    letter_id: l.letter_id,
+    de_person_id: l.de_person_id,
+    para_person_id: l.para_person_id,
+    texto: l.texto,
+    criada_em: l.criada_em,
+    lida_em: l.lida_em,
   };
 }
 
@@ -369,6 +383,21 @@ export async function loadDesignated(): Promise<Designated[]> {
   .filter((r) => ((r.task_id ?? '').trim() !== ''))
 }
 
+export async function loadLetters(): Promise<Letter[]> {
+  const { header, rows } = await loadTable(TAB.cartas);
+  headerCache[TAB.cartas] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    letter_id: (r.values['letter_id'] ?? '').trim(),
+    de_person_id: (r.values['de_person_id'] ?? '').trim(),
+    para_person_id: (r.values['para_person_id'] ?? '').trim(),
+    texto: r.values['texto'] ?? '',
+    criada_em: (r.values['criada_em'] ?? '').trim(),
+    lida_em: (r.values['lida_em'] ?? '').trim(),
+  }))
+  .filter((l) => l.letter_id !== '');
+}
+
 export async function loadGMPhrases(): Promise<string[]> {
   const { header, rows } = await loadTable(TAB.bomdia);
   headerCache[TAB.bomdia] = header;
@@ -430,6 +459,25 @@ export async function appendMessages(
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values },
   });
+}
+
+export async function appendLetter(l: Omit<Letter, '__row'>): Promise<void> {
+  const header = ensureHeader(TAB.cartas, CARTAS_HEADER);
+  const client = getClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.cartas}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [header.map((h) => letterToValues(l)[h] ?? '')] },
+  });
+}
+
+export async function saveLetters(ls: Letter[]): Promise<void> {
+  if (ls.length === 0) return;
+  const header = ensureHeader(TAB.cartas, CARTAS_HEADER);
+  const items = ls.map((l) => ({ rowNumber: l.__row, values: letterToValues(l) }));
+  await batchWriteRows(TAB.cartas, header, items);
 }
 
 export async function appendDesignated(d: Designated): Promise<void> {
