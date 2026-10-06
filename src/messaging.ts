@@ -371,3 +371,11 @@ export function adminErrorMessage(error: AdminError): string {
 export function formatSwapRecipientNotFound(): string {
   return 'Não encontrei ninguém com esse nome. Confira o nome e tente de novo.';
 }
+
+export function formatSwapSelfUnavailable(): string {
+  return 'Você está de férias e não pode assumir tarefas. Envie "voltar ferias" e peça de novo.';
+}
+
+export function formatSwapInProgress(): string {
+  return 'Esse pedido já está sendo processado.';
+}

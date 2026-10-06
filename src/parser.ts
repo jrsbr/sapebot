@@ -34,6 +34,15 @@ export function parseMessage(text: string): Intent {
   if (first === 'admin') return { type: 'admin', raw }; 
   if (first === 'trocar' || first === 'troca') return { type: 'swap_request', raw };
   if ((first === 'solicitar' || first === 'pedir') && tokens[1] === 'troca') return { type: 'swap_request', raw };
+  if ((first === 'cancelar' || first === 'cancela') && rest === 'troca') return { type: 'swap_cancel' };
+  if (first === 'aceitar' || first === 'aceito') {
+    const answer = buildSwapAnswer('accept', rest);
+    if (answer) return answer;
+  }
+  if (first === 'recusar' || first === 'recuso' || first === 'negar') {
+    const answer = buildSwapAnswer('decline', rest);
+    if (answer) return answer;
+  }
   if (first === 'carta' || first === 'cartas') return buildLetterIntent(raw);
   if (HELP_WORDS.includes(first)) return { type: 'help' };
   if (STATUS_WORDS.includes(first)) return { type: 'status' };
@@ -51,6 +60,12 @@ export function parseMessage(text: string): Intent {
   if (rest === '' && CANCEL_WORDS.includes(first)) return { type: 'cancel' };
 
   return { type: 'unknown', raw };
+}
+
+function buildSwapAnswer(answer: 'accept' | 'decline', rest: string): Intent | null {
+  if (rest === '' || rest === 'troca') return { type: 'swap_answer', answer };
+  if (/^\d+$/.test(rest)) return { type: 'swap_answer', answer, n: parseInt(rest, 10) };
+  return null;
 }
 
 function buildLetterIntent(raw: string): Intent {

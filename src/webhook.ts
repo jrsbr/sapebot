@@ -9,7 +9,7 @@ import {
   deleteRows, TAB,
   savePerson, loadGMPhrases, appendLetter, loadLetters, saveLetters, loadSwaps, appendSwap, saveSwaps
 } from './sheets';
-import { parseSwapRequest, resolveSwapDate, findSwapTarget, hasOpenSwapFor } from './swaps';
+import { parseSwapRequest, resolveSwapDate, findSwapTarget, hasOpenSwapFor, openSwapsFor, openSwapsFrom, pickSwapAnswerTarget, swapDesignated, isSwapStale } from './swaps';
 import { resolveRecipient, unreadDelivered, deliveryDayLabel, LETTER_MAX_CHARS } from './letters';
 import type { DeliveryClock } from './letters';
 import { parseMessage, normalizeText } from './parser';
@@ -21,7 +21,9 @@ import {
 import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
-  formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent
+  formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
+  formatSwapInvalidNumber, formatSwapChoose, formatSwapInProgress, formatSwapStale, formatSwapSelfUnavailable, formatSwapAcceptedToTarget, formatSwapAcceptedToRequester,
+  formatSwapDeclinedToTarget, formatSwapDeclinedToRequester, formatSwapNothingToCancel, formatSwapCancelledToTarget, formatSwapCancelledToRequester
  } from './messaging';
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
@@ -33,6 +35,8 @@ import { askLlm } from './llm';
 import { clearPending, getPending, setPending } from './pending';
 
 export const webhookRouter = Router();
+
+const swapLocks = new Set<string>();
 
 // GET /webhook — verificação da Meta
 webhookRouter.get('/webhook', (req: Request, res: Response) => {
@@ -269,9 +273,26 @@ async function handleOneMessage(
       break;
     }
 
+    case 'swap_answer': {
+      const out = await handleSwapAnswer(intent.answer, intent.n, people, autoTask, designated, messages, person, logicalToday);
+      if (out === null) ({ llmResponded, reply } = await callLlm(text, ctx));
+      else reply = out;
+      break;
+    }
+
+    case 'swap_cancel': {
+      reply = await handleSwapCancel(people, autoTask, messages, person);
+      break;
+    }
+
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
+        const out = await handleSwapAnswer('accept', undefined, people, autoTask, designated, messages, person, logicalToday);
+        if (out !== null) {
+          reply = out;
+          break;
+        }
         ({ llmResponded, reply } = await callLlm(text, ctx));
         break;
       }
@@ -311,6 +332,11 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         reply = 'Operação cancelada com sucesso! Precisa de mais algo?';
       } else {
+        const out = await handleSwapAnswer('decline', undefined, people, autoTask, designated, messages, person, logicalToday);
+        if (out !== null) {
+          reply = out;
+          break;
+        }
         ({ llmResponded, reply } = await callLlm(text, ctx));
       }
       break;
@@ -577,6 +603,137 @@ async function handleSwapRequest(
     return formatSwapSendFailed(dest.nome);
   }
   return formatSwapRequestSent(dest.nome, descricao, data);
+}
+
+async function handleSwapAnswer(
+  answer: 'accept' | 'decline',
+  n: number | undefined,
+  people: Person[],
+  autoTask: AutoTask[],
+  designated: Designated[],
+  messages: MessageRow[],
+  person: Person,
+  logicalToday: string,
+): Promise<string | null> {
+  let swaps: Swap[];
+  try {
+    swaps = await loadSwaps();
+  } catch (err) {
+    logger.error('Falha ao carregar pedidos de troca', { error: (err as Error).message });
+    return null;
+  }
+  const open = openSwapsFor(swaps, person.person_id, new Date());
+  const pick = pickSwapAnswerTarget(open, n);
+  if (pick.kind === 'none') return null;
+  if (pick.kind === 'invalid') return formatSwapInvalidNumber();
+  if (pick.kind === 'choose') {
+    return formatSwapChoose(pick.list.map((s) => ({
+      deNome: people.find((p) => p.person_id === s.de_person_id)?.nome ?? 'alguém',
+      descricao: swapDescricao(autoTask, s.task_id),
+      data: s.data,
+    })));
+  }
+
+  const swapId = pick.swap.swap_id;
+  if (swapLocks.has(swapId)) return formatSwapInProgress();
+  swapLocks.add(swapId);
+  try {
+    let swap: Swap | undefined;
+    try {
+      swap = (await loadSwaps()).find((s) => s.swap_id === swapId);
+    } catch (err) {
+      logger.error('Falha ao recarregar pedido de troca', { error: (err as Error).message });
+      return formatSwapSaveFailed();
+    }
+    if (!swap || swap.status !== 'pending' || openSwapsFor([swap], person.person_id, new Date()).length === 0) return formatSwapStale();
+
+    const descricao = swapDescricao(autoTask, swap.task_id);
+    const requester = people.find((p) => p.person_id === swap.de_person_id);
+
+    if (answer === 'accept') {
+      const d = swapDesignated(designated, swap);
+      if (isSwapStale(d, swap, logicalToday)) {
+        swap.status = 'cancelled';
+        swap.resolvida_em = nowIso();
+        try {
+          await saveSwaps([swap]);
+        } catch (err) {
+          logger.error('Falha ao cancelar pedido de troca obsoleto', { error: (err as Error).message });
+        }
+        return formatSwapStale();
+      }
+      if (person.ferias || !person.ativo || !person.opt_in) return formatSwapSelfUnavailable();
+
+      d!.person_id = person.person_id;
+      try {
+        await saveDesignated(d!);
+      } catch (err) {
+        d!.person_id = swap.de_person_id;
+        logger.error('Falha ao salvar troca na tarefa', { error: (err as Error).message });
+        return formatSwapSaveFailed();
+      }
+
+      swap.status = 'accepted';
+      swap.resolvida_em = nowIso();
+      try {
+        await saveSwaps([swap]);
+      } catch (err) {
+        logger.error('Falha ao marcar pedido de troca como aceito', { error: (err as Error).message });
+      }
+      if (requester) {
+        await notifyPerson(requester, formatSwapAcceptedToRequester(person.nome, descricao, swap.data), 'swap_accepted', messages);
+      }
+      return formatSwapAcceptedToTarget(requester?.nome ?? 'quem pediu', descricao, swap.data);
+    }
+
+    swap.status = 'declined';
+    swap.resolvida_em = nowIso();
+    try {
+      await saveSwaps([swap]);
+    } catch (err) {
+      logger.error('Falha ao marcar pedido de troca como recusado', { error: (err as Error).message });
+    }
+    if (requester) {
+      await notifyPerson(requester, formatSwapDeclinedToRequester(person.nome, descricao, swap.data), 'swap_declined', messages);
+    }
+    return formatSwapDeclinedToTarget();
+  } finally {
+    swapLocks.delete(swapId);
+  }
+}
+
+async function handleSwapCancel(people: Person[], autoTask: AutoTask[], messages: MessageRow[], person: Person): Promise<string> {
+  let open: Swap[];
+  try {
+    open = openSwapsFrom(await loadSwaps(), person.person_id, new Date());
+  } catch (err) {
+    logger.error('Falha ao carregar pedidos de troca', { error: (err as Error).message });
+    return formatSwapSaveFailed();
+  }
+  if (open.length === 0) return formatSwapNothingToCancel();
+
+  const stamp = nowIso();
+  for (const s of open) {
+    s.status = 'cancelled';
+    s.resolvida_em = stamp;
+  }
+  try {
+    await saveSwaps(open);
+  } catch (err) {
+    logger.error('Falha ao cancelar pedidos de troca', { error: (err as Error).message });
+    return formatSwapSaveFailed();
+  }
+
+  for (const s of open) {
+    const dest = people.find((p) => p.person_id === s.para_person_id);
+    if (!dest) continue;
+    try {
+      await notifyPerson(dest, formatSwapCancelledToTarget(person.nome, swapDescricao(autoTask, s.task_id), s.data), 'swap_cancelled', messages);
+    } catch (err) {
+      logger.error('Falha ao avisar cancelamento de troca', { error: (err as Error).message });
+    }
+  }
+  return formatSwapCancelledToRequester(open.length);
 }
 
 async function handleAdminAdd(
