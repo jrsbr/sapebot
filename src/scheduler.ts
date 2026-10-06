@@ -7,8 +7,9 @@ import {
   loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, dumpTab,
   loadDesignated, saveDesignated, TAB, overwriteTab,
   loadAutoTasks, loadWalkSlots,
-  appendDesignateds
+  appendDesignateds, loadLetters, deleteRows
 } from './sheets';
+import { lettersToPurge } from './letters';
 import {
   getPendingTasksForToday, rolloverRecurringTasks,dedupeByRow
 } from './tasks';
@@ -46,6 +47,13 @@ export async function pruneOldMessages(hours = 48): Promise<number> {
   const removed = matrix.length - 1 - kept.length;
   if (removed > 0) await overwriteTab(TAB.mensagens, [header, ...kept]);
   return removed;
+}
+
+export async function purgeOldLetters(): Promise<number> {
+  const letters = await loadLetters();
+  const old = lettersToPurge(letters, new Date());
+  await deleteRows(TAB.cartas, old.map((l) => l.__row));
+  return old.length;
 }
 
 export async function purgeOldDoneOnceTasks(days = 14): Promise<number> {
@@ -374,6 +382,17 @@ export function startScheduler(): void {
         .then((n) => logger.info(`Tarefas once antigas removidas: ${n}.`))
         .catch((err) =>
           logger.error('Falha na limpeza de tarefas once', { error: (err as Error).message }),
+        );
+    },
+    { timezone: env.DEFAULT_TIMEZONE },
+  );
+  cron.schedule(
+    '15 4 * * *',
+    () => {
+      purgeOldLetters()
+        .then((n) => logger.info(`Cartas antigas removidas: ${n}.`))
+        .catch((err) =>
+          logger.error('Falha na limpeza de cartas', { error: (err as Error).message }),
         );
     },
     { timezone: env.DEFAULT_TIMEZONE },
