@@ -206,6 +206,7 @@ async function handleOneMessage(
   let notices: GroupDoneNotice[] = [];
   const changed: Task[] = [];
   const autoChanged: Designated[] = [];
+  const lettersToMark: Letter[] = [];
   let llmResponded = false;
   const ctx: LlmContext = {
     messages: messages,
@@ -256,7 +257,7 @@ async function handleOneMessage(
     }
 
     case 'letters': {
-      reply = await handleLettersRead(people, person);
+      reply = await handleLettersRead(people, person, lettersToMark);
       break;
     }
 
@@ -413,6 +414,15 @@ async function handleOneMessage(
   await safeAppend(inboundRow);
   const sendResult = await sendText(person.whatsapp_e164, reply);
   await safeAppend(buildOutboundRow(person.whatsapp_e164, person.person_id, reply, intent.type, llmResponded ? 'llm' : relatedKey, sendResult));
+
+  if (sendResult.ok && lettersToMark.length > 0) {
+    const stamp = nowIso();
+    try {
+      await saveLetters(lettersToMark.map((l) => ({ ...l, lida_em: stamp })));
+    } catch (err) {
+      logger.error('Falha ao marcar cartas como lidas', { error: (err as Error).message });
+    }
+  }
 }
 
 function letterClock(): DeliveryClock {
@@ -454,7 +464,7 @@ async function handleLetterSend(intent: Extract<Intent, { type: 'letter' }>, peo
   }
 }
 
-async function handleLettersRead(people: Person[], person: Person): Promise<string> {
+async function handleLettersRead(people: Person[], person: Person, lettersToMark: Letter[]): Promise<string> {
   let letters: Letter[];
   try {
     letters = await loadLetters();
@@ -464,13 +474,7 @@ async function handleLettersRead(people: Person[], person: Person): Promise<stri
   }
   const unread = unreadDelivered(letters, person.person_id, new Date(), letterClock());
   const { text, shown } = formatLettersReply(unread, people, person.timezone || env.DEFAULT_TIMEZONE);
-  if (shown.length > 0) {
-    try {
-      await saveLetters(shown.map((l) => ({ ...l, lida_em: nowIso() })));
-    } catch (err) {
-      logger.error('Falha ao marcar cartas como lidas', { error: (err as Error).message });
-    }
-  }
+  lettersToMark.push(...shown);
   return text;
 }
 
