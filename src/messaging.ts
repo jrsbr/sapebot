@@ -164,6 +164,9 @@ export function formatHelpText(): string {
     '- "voltar ferias" → volta de férias',
     '- "carta <nome> <mensagem>" → deixa uma carta para um morador (ele recebe o aviso no lembrete da manhã seguinte)',
     '- "cartas" → lê suas cartas novas',
+    '- "trocar tirar lixo quarta Joao" → pede para alguém assumir uma tarefa automática sua (formato: trocar <tarefa> [dia] <nome>; o pedido vale por 1 hora)',
+    '- "sim" / "não" → responde a um pedido de troca que você recebeu (com vários pedidos, "aceitar 2" ou "recusar 2")',
+    '- "cancelar troca" → cancela seus pedidos de troca em aberto',
     '- "ajuda" → mostra esta mensagem',
   ].join('\n');
 }
