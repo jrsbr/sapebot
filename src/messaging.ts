@@ -121,7 +121,7 @@ export function formatLetterUsage(): string {
 }
 
 export function formatLetterConfirm(destNome: string): string {
-  return `Você quis dizer ${destNome}? Responda "sim" para enviar a carta ou "não" para cancelar.`;
+  return `Você quis dizer ${destNome}? Responda "sim" em até 1 minuto para enviar a carta, ou "não" para cancelar.`;
 }
 
 export function formatLetterAmbiguous(nomes: string[]): string {
