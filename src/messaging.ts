@@ -367,3 +367,7 @@ export function adminErrorMessage(error: AdminError): string {
     }
   }
 }
+
+export function formatSwapRecipientNotFound(): string {
+  return 'Não encontrei ninguém com esse nome. Confira o nome e tente de novo.';
+}

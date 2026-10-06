@@ -7,8 +7,9 @@ import { nowIso, localDate, addDays, logicalDate, localHour } from './time';
 import {
   loadPeople, loadTasks, loadMessages, loadAutoTasks, loadDesignated, saveTasks, appendMessage, appendTask, deleteTaskById, saveDesignated,
   deleteRows, TAB,
-  savePerson, loadGMPhrases, appendLetter, loadLetters, saveLetters
+  savePerson, loadGMPhrases, appendLetter, loadLetters, saveLetters, loadSwaps, appendSwap, saveSwaps
 } from './sheets';
+import { parseSwapRequest, resolveSwapDate, findSwapTarget, hasOpenSwapFor } from './swaps';
 import { resolveRecipient, unreadDelivered, deliveryDayLabel, LETTER_MAX_CHARS } from './letters';
 import type { DeliveryClock } from './letters';
 import { parseMessage, normalizeText } from './parser';
@@ -18,13 +19,15 @@ import {
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks
 } from './tasks';
 import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage,
-  formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply
+  formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
+  within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
+  formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent
  } from './messaging';
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
-import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, LlmContext } from './types'
+import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, LlmContext, Swap } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { askLlm } from './llm';
 import { clearPending, getPending, setPending } from './pending';
@@ -261,6 +264,11 @@ async function handleOneMessage(
       break;
     }
 
+    case 'swap_request': {
+      reply = await handleSwapRequest(intent.raw, people, autoTask, designated, messages, person, logicalToday);
+      break;
+    }
+
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
@@ -476,6 +484,99 @@ async function handleLettersRead(people: Person[], person: Person, lettersToMark
   const { text, shown } = formatLettersReply(unread, people, person.timezone || env.DEFAULT_TIMEZONE);
   lettersToMark.push(...shown);
   return text;
+}
+
+function swapDescricao(autoTask: AutoTask[], taskId: string): string {
+  return autoTask.find((a) => a.task_id === taskId)?.descricao || taskId;
+}
+
+async function notifyPerson(target: Person, text: string, tag: string, messages: MessageRow[]): Promise<boolean> {
+  if (!within24h(messages, target.person_id)) {
+    logger.warn(`Notificação '${tag}' não enviada a ${target.person_id}: fora da janela de 24h.`);
+    return false;
+  }
+  const result = await sendText(target.whatsapp_e164, text);
+  await safeAppend(buildOutboundRow(target.whatsapp_e164, target.person_id, text, tag, '', result));
+  return result.ok;
+}
+
+async function handleSwapRequest(
+  raw: string,
+  people: Person[],
+  autoTask: AutoTask[],
+  designated: Designated[],
+  messages: MessageRow[],
+  person: Person,
+  logicalToday: string,
+): Promise<string> {
+  const parsed = parseSwapRequest(raw);
+  if (!parsed) return formatSwapUsage();
+  const { taskQuery, dayToken, personQuery } = parsed;
+
+  let date: string | null = null;
+  if (dayToken) {
+    date = resolveSwapDate(dayToken, logicalToday);
+    if (!date) return formatSwapBadDay(dayToken);
+  }
+
+  const target = findSwapTarget(designated, autoTask, person.person_id, taskQuery, date, logicalToday);
+  if (target.kind === 'none') return formatSwapTaskNotFound(taskQuery, date);
+  if (target.kind === 'ambiguous') {
+    return formatSwapTaskAmbiguous(target.options.map((o) => ({ descricao: o.descricao, data: o.designated.data })));
+  }
+
+  const res = resolveRecipient(people, person.person_id, personQuery);
+  if (res.kind === 'none') return formatSwapRecipientNotFound();
+  if (res.kind === 'ambiguous') return formatLetterAmbiguous(res.candidates.map((c) => c.nome));
+  const dest = res.person;
+
+  if (dest.ferias) return formatSwapTargetOnVacation(dest.nome);
+  if (!within24h(messages, dest.person_id)) return formatSwapTargetOutsideWindow(dest.nome);
+
+  const { data, task_id } = target.designated;
+  const descricao = target.descricao || swapDescricao(autoTask, task_id);
+
+  try {
+    const swaps = await loadSwaps();
+    if (hasOpenSwapFor(swaps, { data, task_id }, new Date())) return formatSwapDuplicate();
+  } catch (err) {
+    logger.error('Falha ao carregar pedidos de troca', { error: (err as Error).message });
+    return formatSwapSaveFailed();
+  }
+
+  const swapId = crypto.randomUUID();
+  try {
+    await appendSwap({
+      swap_id: swapId,
+      data,
+      task_id,
+      de_person_id: person.person_id,
+      para_person_id: dest.person_id,
+      status: 'pending',
+      criada_em: nowIso(),
+      resolvida_em: '',
+    });
+  } catch (err) {
+    logger.error('Falha ao registrar pedido de troca', { error: (err as Error).message });
+    return formatSwapSaveFailed();
+  }
+
+  const sent = await notifyPerson(dest, formatSwapRequestToTarget(person.nome, descricao, data), 'swap_request', messages);
+  if (!sent) {
+    try {
+      const swaps = await loadSwaps();
+      const s: Swap | undefined = swaps.find((x) => x.swap_id === swapId);
+      if (s) {
+        s.status = 'failed';
+        s.resolvida_em = nowIso();
+        await saveSwaps([s]);
+      }
+    } catch (err) {
+      logger.error('Falha ao marcar pedido de troca como falho', { error: (err as Error).message });
+    }
+    return formatSwapSendFailed(dest.nome);
+  }
+  return formatSwapRequestSent(dest.nome, descricao, data);
 }
 
 async function handleAdminAdd(
