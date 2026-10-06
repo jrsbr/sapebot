@@ -62,7 +62,7 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 
 **`Config`** — flags de comportamento em pares `key,value` (ex.: `daily_reminder_enabled`, `send_no_task_message`).
 
-> As tarefas automáticas da casa usam abas próprias, para a definição de cada tarefa e para o calendário/histórico de quem ficou responsável em cada dia.
+> As tarefas automáticas da casa usam abas próprias, para a definição de cada tarefa e para o calendário/histórico de quem ficou responsável em cada dia. Outras abas auxiliares: `Cachorro` (escala fixa por dia da semana), `Cartas` (cartas entre moradores) e `Trocas` (pedidos de troca de tarefas).
 
 > As colunas de data são lidas como texto no formato `YYYY-MM-DD`. As comparações de data dependem disso.
 
@@ -77,6 +77,10 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 **Modo férias.** A pessoa pode se declarar de férias e parar de receber as tarefas da casa enquanto estiver fora, voltando ao rodízio quando retornar. As tarefas pessoais continuam.
 
 **Calendário da semana.** A pessoa pode consultar, a qualquer momento, suas tarefas dos próximos sete dias.
+
+**Cartas entre moradores.** Um morador deixa uma carta para outro (`carta <nome> <mensagem>`); ela fica guardada na aba `Cartas` e entra no aviso do lembrete da manhã seguinte (`* Você tem mensagens não lidas`), em ciclo de 9h a 9h. O destinatário lê com `cartas`. Cartas lidas são apagadas após 7 dias e as nunca lidas após 30. Quem não tem tarefa, mas tem carta, recebe o bom dia com o aviso.
+
+**Troca de tarefas automáticas.** Quem não puder fazer uma tarefa da casa pede a outro morador que assuma (`trocar tirar lixo quarta Joao`). O pedido (aba `Trocas`) só sai se a pessoa falou com o bot nas últimas 24h, vale 1 hora e é respondido com `sim`/`não`. Aceita a troca, a tarefa passa a ser de quem aceitou e quem pediu é avisado. Resposta fora do prazo cai no chat livre, que avisa que o pedido expirou.
 
 **Saudação de bom dia.** Uma mensagem de "bom dia" recebe uma saudação com uma frase do dia, quando enviada no período da manhã.
 
@@ -114,6 +118,8 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 | `trocar <tarefa> [dia] <nome>` | Pede a outro morador para assumir uma tarefa automática sua (ex.: `trocar tirar lixo quarta Joao`). O pedido vale 1 hora e só sai se a pessoa falou com o bot nas últimas 24h. |
 | `sim` / `não` / `aceitar N` / `recusar N` | Responde a um pedido de troca recebido (N escolhe o pedido quando há vários). |
 | `cancelar troca` | Cancela seus pedidos de troca abertos. |
+| `carta <nome> <mensagem>` | Deixa uma carta para outro morador (ex.: `carta Carlos o jantar é às 20h`). Ela só chega no lembrete da manhã seguinte; com erro de digitação no nome, o bot pede confirmação (`sim`, em até 1 minuto). |
+| `cartas` | Lê as cartas novas já entregues e as marca como lidas. |
 | `bom dia` | Responde com uma saudação da manhã. |
 | `ajuda` | Mostra os comandos disponíveis. |
 | qualquer outra coisa | Resposta padrão orientando a enviar `ajuda`. |
