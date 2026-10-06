@@ -151,3 +151,11 @@ export function pickSwapAnswerTarget(open: Swap[], n?: number): SwapAnswerTarget
   }
   return open.length === 1 ? { kind: 'one', swap: open[0] } : { kind: 'choose', list: open };
 }
+
+export function swapsToPurge(swaps: Swap[], now: Date, days = 7): Swap[] {
+  return swaps.filter((s) => {
+    const t = Date.parse(s.resolvida_em || s.criada_em);
+    if (Number.isNaN(t)) return false;
+    return now.getTime() - t > days * 86_400_000;
+  });
+}

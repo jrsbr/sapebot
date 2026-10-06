@@ -7,9 +7,10 @@ import {
   loadPeople, loadTasks, loadConfig, loadMessages, saveTasks, appendMessages, dumpTab,
   loadDesignated, saveDesignated, TAB, overwriteTab,
   loadAutoTasks, loadWalkSlots,
-  appendDesignateds, loadLetters, deleteRows, loadGMPhrases
+  appendDesignateds, loadLetters, deleteRows, loadGMPhrases, loadSwaps
 } from './sheets';
 import { lettersToPurge, unreadDelivered } from './letters';
+import { swapsToPurge } from './swaps';
 import type { DeliveryClock } from './letters';
 import {
   getPendingTasksForToday, rolloverRecurringTasks,dedupeByRow
@@ -54,6 +55,13 @@ export async function purgeOldLetters(): Promise<number> {
   const letters = await loadLetters();
   const old = lettersToPurge(letters, new Date());
   await deleteRows(TAB.cartas, old.map((l) => l.__row));
+  return old.length;
+}
+
+export async function purgeOldSwaps(): Promise<number> {
+  const swaps = await loadSwaps();
+  const old = swapsToPurge(swaps, new Date());
+  await deleteRows(TAB.trocas, old.map((s) => s.__row));
   return old.length;
 }
 
@@ -444,6 +452,18 @@ export function startScheduler(): void {
         .then((n) => logger.info(`Cartas antigas removidas: ${n}.`))
         .catch((err) =>
           logger.error('Falha na limpeza de cartas', { error: (err as Error).message }),
+        );
+    },
+    { timezone: env.DEFAULT_TIMEZONE },
+  );
+
+  cron.schedule(
+    '20 4 * * *',
+    () => {
+      purgeOldSwaps()
+        .then((n) => logger.info(`Pedidos de troca antigos removidos: ${n}.`))
+        .catch((err) =>
+          logger.error('Falha na limpeza de pedidos de troca', { error: (err as Error).message }),
         );
     },
     { timezone: env.DEFAULT_TIMEZONE },
