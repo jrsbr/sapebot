@@ -54,6 +54,126 @@ export function formatStatusText(nome: string, pending: GenericTask[]): string {
   return [`${nome}, ainda faltam:`, '', formatTaskListMultiline(pending)].join('\n');
 }
 
+export function formatSwapDateLabel(ymd: string): string {
+  const [, m, d] = ymd.split('-');
+  return `${weekdayName(ymd).replace(/-feira$/, '')}, ${d}/${m}`;
+}
+
+export function formatSwapRequestToTarget(deNome: string, descricao: string, ymd: string): string {
+  return `${deNome} pediu para você assumir a tarefa "${descricao}" (${formatSwapDateLabel(ymd)}). Responda "sim" para aceitar ou "não" para recusar. O pedido vale por 1 hora.`;
+}
+
+export function formatSwapRequestSent(paraNome: string, descricao: string, ymd: string): string {
+  return `Pedido enviado para ${paraNome}: "${descricao}" (${formatSwapDateLabel(ymd)}). Te aviso quando a resposta chegar. O pedido vale por 1 hora.`;
+}
+
+export function formatSwapUsage(): string {
+  return 'Para pedir uma troca: trocar <tarefa> [dia] <nome>\nExemplo: trocar tirar lixo quarta Joao';
+}
+
+export function formatSwapBadDay(dayToken: string): string {
+  return `Não entendi o dia "${dayToken}". Use hoje, amanhã, um dia da semana ou dd/mm (não pode ser data passada).`;
+}
+
+export function formatSwapTaskNotFound(taskQuery: string, ymd: string | null): string {
+  return `Não encontrei "${taskQuery}" entre suas tarefas automáticas pendentes${ymd ? ` em ${formatSwapDateLabel(ymd)}` : ''}. Envie "semana" para ver suas tarefas.`;
+}
+
+function swapDayWord(ymd: string): string {
+  return weekdayName(ymd).replace(/-feira$/, '');
+}
+
+function swapDayTokens(dates: string[]): string[] {
+  const words = dates.map(swapDayWord);
+  if (new Set(words).size === words.length) return words;
+  return dates.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
+}
+
+export function formatSwapTaskAmbiguous(options: { descricao: string; data: string }[], paraNome: string): string {
+  const tokens = swapDayTokens(options.map((o) => o.data));
+  const lines = options.map((o, i) => `- trocar ${o.descricao} ${tokens[i]} ${paraNome}`);
+  return ['Mais de uma tarefa parecida. Envie o comando da que você quer:', ...lines].join('\n');
+}
+
+export function formatSwapDateAmbiguous(descricao: string, dates: string[], paraNome: string): string {
+  const tokens = swapDayTokens(dates);
+  const lines = dates.map((d, i) => `- trocar ${descricao} ${tokens[i]} ${paraNome} (${formatSwapDateLabel(d)})`);
+  return [`Você tem "${descricao}" em mais de um dia. Envie o comando com o dia que você quer:`, ...lines].join('\n');
+}
+
+export function formatSwapRecipientFuzzy(nome: string, command: string): string {
+  return `Você quis dizer ${nome}? Para confirmar, envie: ${command}`;
+}
+
+export function formatSwapOpenReminder(deNome: string, descricao: string, ymd: string): string {
+  return `Você tem um pedido de troca aberto: ${deNome} pediu para você assumir "${descricao}" (${formatSwapDateLabel(ymd)}). Responda "sim" para aceitar ou "não" para recusar.`;
+}
+
+export function formatSwapTargetOnVacation(nome: string): string {
+  return `${nome} está de férias.`;
+}
+
+export function formatSwapTargetOutsideWindow(nome: string): string {
+  return `Não consegui pedir a ${nome}: ${nome} não falou com o Sapebot nas últimas 24h. Peça para mandar qualquer mensagem aqui e tente de novo.`;
+}
+
+export function formatSwapDuplicate(): string {
+  return 'Já existe um pedido de troca em aberto para essa tarefa.';
+}
+
+export function formatSwapSendFailed(paraNome: string): string {
+  return `Não consegui avisar ${paraNome} agora. Tente de novo em instantes.`;
+}
+
+export function formatSwapSaveFailed(): string {
+  return 'Não consegui registrar o pedido agora. Tente de novo em instantes.';
+}
+
+export function formatSwapAcceptedToTarget(deNome: string, descricao: string, ymd: string): string {
+  return `Combinado! Você ficou com "${descricao}" (${formatSwapDateLabel(ymd)}) no lugar de ${deNome}.`;
+}
+
+export function formatSwapAcceptedToRequester(paraNome: string, descricao: string, ymd: string): string {
+  return `${paraNome} aceitou fazer "${descricao}" (${formatSwapDateLabel(ymd)}) no seu lugar.`;
+}
+
+export function formatSwapDeclinedToTarget(): string {
+  return 'Ok, pedido recusado.';
+}
+
+export function formatSwapDeclinedToRequester(paraNome: string, descricao: string, ymd: string): string {
+  return `${paraNome} recusou o pedido de troca de "${descricao}" (${formatSwapDateLabel(ymd)}).`;
+}
+
+export function formatSwapStale(): string {
+  return 'Esse pedido não vale mais (a tarefa já foi feita ou mudou).';
+}
+
+export function formatSwapChoose(list: { deNome: string; descricao: string; data: string }[]): string {
+  const lines = list.map((s, i) => `${i + 1}. ${s.deNome}: "${s.descricao}" (${formatSwapDateLabel(s.data)})`);
+  return ['Você tem mais de um pedido de troca:', '', ...lines, '', 'Responda "aceitar 1" ou "recusar 1" (use o número do pedido).'].join('\n');
+}
+
+export function formatSwapInvalidNumber(): string {
+  return 'Número inválido. Responda "aceitar N" ou "recusar N" com o número da lista.';
+}
+
+export function formatSwapCancelledToRequester(n: number): string {
+  return `Cancelei ${n} pedido${n === 1 ? '' : 's'} de troca.`;
+}
+
+export function formatSwapNothingToCancel(): string {
+  return 'Você não tem pedidos de troca abertos.';
+}
+
+export function formatSwapCancelledToTarget(deNome: string, descricao: string, ymd: string): string {
+  return `${deNome} cancelou o pedido de troca de "${descricao}" (${formatSwapDateLabel(ymd)}).`;
+}
+
+export function formatSwapTargetNotAvailable(nome: string): string {
+  return `${nome} não está disponível para assumir tarefas agora.`;
+}
+
 export function formatHelpText(): string {
   return [
     'Comandos disponíveis:',
@@ -69,6 +189,9 @@ export function formatHelpText(): string {
     '- "voltar ferias" → volta de férias',
     '- "carta <nome> <mensagem>" → deixa uma carta para um morador (ele recebe o aviso no lembrete da manhã seguinte)',
     '- "cartas" → lê suas cartas novas',
+    '- "trocar tirar lixo quarta Joao" → pede para alguém assumir uma tarefa automática sua (formato: trocar <tarefa> [dia] <nome>; o pedido vale por 1 hora)',
+    '- "sim" / "não" → responde a um pedido de troca que você recebeu (com vários pedidos, "aceitar 2" ou "recusar 2")',
+    '- "cancelar troca" → cancela seus pedidos de troca em aberto',
     '- "ajuda" → mostra esta mensagem',
   ].join('\n');
 }
@@ -268,4 +391,16 @@ export function adminErrorMessage(error: AdminError): string {
       return _exhaustive;
     }
   }
+}
+
+export function formatSwapRecipientNotFound(): string {
+  return 'Não encontrei ninguém com esse nome. Confira o nome e tente de novo.';
+}
+
+export function formatSwapSelfUnavailable(): string {
+  return 'Você está de férias e não pode assumir tarefas. Envie "voltar ferias" e peça de novo.';
+}
+
+export function formatSwapInProgress(): string {
+  return 'Esse pedido já está sendo processado.';
 }
