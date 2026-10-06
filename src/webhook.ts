@@ -23,7 +23,8 @@ import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboun
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
   formatSwapInvalidNumber, formatSwapChoose, formatSwapInProgress, formatSwapStale, formatSwapSelfUnavailable, formatSwapAcceptedToTarget, formatSwapAcceptedToRequester,
-  formatSwapDeclinedToTarget, formatSwapDeclinedToRequester, formatSwapNothingToCancel, formatSwapCancelledToTarget, formatSwapCancelledToRequester
+  formatSwapDeclinedToTarget, formatSwapDeclinedToRequester, formatSwapNothingToCancel, formatSwapCancelledToTarget, formatSwapCancelledToRequester,
+  formatSwapRecipientFuzzy, formatSwapDateAmbiguous, formatSwapOpenReminder
  } from './messaging';
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
@@ -288,7 +289,10 @@ async function handleOneMessage(
     case 'confirm': {
       const p = getPending(person.whatsapp_e164);
       if (!p) {
-        const out = await handleSwapAnswer('accept', undefined, people, autoTask, designated, messages, person, logicalToday);
+        const word = normalizeText(text);
+        const out = SWAP_ACCEPT_WORDS.includes(word)
+          ? await handleSwapAnswer('accept', undefined, people, autoTask, designated, messages, person, logicalToday)
+          : await swapNudge(people, autoTask, person);
         if (out !== null) {
           reply = out;
           break;
@@ -332,7 +336,9 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         reply = 'Operação cancelada com sucesso! Precisa de mais algo?';
       } else {
-        const out = await handleSwapAnswer('decline', undefined, people, autoTask, designated, messages, person, logicalToday);
+        const out = normalizeText(text) === 'nao'
+          ? await handleSwapAnswer('decline', undefined, people, autoTask, designated, messages, person, logicalToday)
+          : await swapNudge(people, autoTask, person);
         if (out !== null) {
           reply = out;
           break;
@@ -412,6 +418,11 @@ async function handleOneMessage(
     }
 
     default: {
+      const nudge = await swapNudge(people, autoTask, person);
+      if (nudge !== null) {
+        reply = nudge;
+        break;
+      }
       ({ llmResponded, reply } = await callLlm(text, ctx));
     }
   }
@@ -516,6 +527,26 @@ function swapDescricao(autoTask: AutoTask[], taskId: string): string {
   return autoTask.find((a) => a.task_id === taskId)?.descricao || taskId;
 }
 
+const SWAP_ACCEPT_WORDS = ['sim', 's', 'confirmar', 'confirma'];
+
+async function swapNudge(people: Person[], autoTask: AutoTask[], person: Person): Promise<string | null> {
+  let swaps: Swap[];
+  try {
+    swaps = await loadSwaps();
+  } catch (err) {
+    logger.error('Falha ao carregar pedidos de troca', { error: (err as Error).message });
+    return null;
+  }
+  const items = openSwapsFor(swaps, person.person_id, new Date()).map((s) => ({
+    deNome: people.find((p) => p.person_id === s.de_person_id)?.nome ?? 'alguém',
+    descricao: swapDescricao(autoTask, s.task_id),
+    data: s.data,
+  }));
+  if (items.length === 0) return null;
+  if (items.length === 1) return formatSwapOpenReminder(items[0].deNome, items[0].descricao, items[0].data);
+  return formatSwapChoose(items);
+}
+
 async function notifyPerson(target: Person, text: string, tag: string, messages: MessageRow[]): Promise<boolean> {
   if (!within24h(messages, target.person_id)) {
     logger.warn(`Notificação '${tag}' não enviada a ${target.person_id}: fora da janela de 24h.`);
@@ -545,16 +576,23 @@ async function handleSwapRequest(
     if (!date) return formatSwapBadDay(dayToken);
   }
 
-  const target = findSwapTarget(designated, autoTask, person.person_id, taskQuery, date, logicalToday);
-  if (target.kind === 'none') return formatSwapTaskNotFound(taskQuery, date);
-  if (target.kind === 'ambiguous') {
-    return formatSwapTaskAmbiguous(target.options.map((o) => ({ descricao: o.descricao, data: o.designated.data })));
-  }
-
   const res = resolveRecipient(people, person.person_id, personQuery);
   if (res.kind === 'none') return formatSwapRecipientNotFound();
   if (res.kind === 'ambiguous') return formatLetterAmbiguous(res.candidates.map((c) => c.nome));
+  if (res.kind === 'fuzzy') {
+    const command = `trocar ${taskQuery}${dayToken ? ` ${dayToken}` : ''} ${res.person.nome}`;
+    return formatSwapRecipientFuzzy(res.person.nome, command);
+  }
   const dest = res.person;
+
+  const target = findSwapTarget(designated, autoTask, person.person_id, taskQuery, date, logicalToday);
+  if (target.kind === 'none') return formatSwapTaskNotFound(taskQuery, date);
+  if (target.kind === 'ambiguous') {
+    return formatSwapTaskAmbiguous(target.options.map((o) => ({ descricao: o.descricao, data: o.designated.data })), dest.nome);
+  }
+  if (target.kind === 'dates') {
+    return formatSwapDateAmbiguous(target.descricao, target.options.map((o) => o.data), dest.nome);
+  }
 
   if (dest.ferias) return formatSwapTargetOnVacation(dest.nome);
   if (!within24h(messages, dest.person_id)) return formatSwapTargetOutsideWindow(dest.nome);

@@ -42,7 +42,14 @@ export function parseSwapRequest(raw: string): ParsedSwap | null {
   const personQuery = tokens.pop()!.replace(/^@/, '').replace(/[,:;.!?]+$/, '');
   if (!personQuery) return null;
 
-  if (['para', 'pra', 'pro', 'com', 'ao'].includes(normalizeText(tokens[tokens.length - 1] ?? ''))) tokens.pop();
+  const lastWord = normalizeText(tokens[tokens.length - 1] ?? '');
+  const prevWord = normalizeText(tokens[tokens.length - 2] ?? '');
+  if (['o', 'a'].includes(lastWord) && ['para', 'pra', 'com'].includes(prevWord)) {
+    tokens.pop();
+    tokens.pop();
+  } else if (['para', 'pra', 'pro', 'com', 'ao'].includes(lastWord)) {
+    tokens.pop();
+  }
 
   let dayToken: string | null = null;
   if (tokens.length > 0 && isDayToken(tokens[tokens.length - 1])) dayToken = tokens.pop()!;
@@ -82,6 +89,7 @@ export function resolveSwapDate(dayToken: string, logicalToday: string): string 
 
 export type SwapTarget =
   | { kind: 'match'; designated: Designated; descricao: string }
+  | { kind: 'dates'; descricao: string; options: Designated[] }
   | { kind: 'ambiguous'; options: { designated: Designated; descricao: string }[] }
   | { kind: 'none' };
 
@@ -105,7 +113,13 @@ export function findSwapTarget(
   const generics = candidates.map((d) => designatedToGeneric(d, autoTasks));
   const byTask = (taskId: string) => candidates.find((d) => d.task_id === taskId)!;
   const { match, ambiguous } = findTaskByDescription(generics, taskQuery);
-  if (match) return { kind: 'match', designated: byTask(match.task_id), descricao: match.descricao };
+  if (match) {
+    if (date === null) {
+      const all = sorted.filter((d) => d.task_id === match.task_id);
+      if (all.length > 1) return { kind: 'dates', descricao: match.descricao, options: all };
+    }
+    return { kind: 'match', designated: byTask(match.task_id), descricao: match.descricao };
+  }
   if (ambiguous.length > 0) {
     return { kind: 'ambiguous', options: ambiguous.map((g) => ({ designated: byTask(g.task_id), descricao: g.descricao })) };
   }

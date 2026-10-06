@@ -79,9 +79,34 @@ export function formatSwapTaskNotFound(taskQuery: string, ymd: string | null): s
   return `Não encontrei "${taskQuery}" entre suas tarefas automáticas pendentes${ymd ? ` em ${formatSwapDateLabel(ymd)}` : ''}. Envie "semana" para ver suas tarefas.`;
 }
 
-export function formatSwapTaskAmbiguous(options: { descricao: string; data: string }[]): string {
-  const lines = options.map((o, i) => `${i + 1}. ${o.descricao} (${formatSwapDateLabel(o.data)})`);
-  return ['Mais de uma tarefa parecida:', ...lines, 'Envie de novo com o nome mais completo ou o dia.'].join('\n');
+function swapDayWord(ymd: string): string {
+  return weekdayName(ymd).replace(/-feira$/, '');
+}
+
+function swapDayTokens(dates: string[]): string[] {
+  const words = dates.map(swapDayWord);
+  if (new Set(words).size === words.length) return words;
+  return dates.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`);
+}
+
+export function formatSwapTaskAmbiguous(options: { descricao: string; data: string }[], paraNome: string): string {
+  const tokens = swapDayTokens(options.map((o) => o.data));
+  const lines = options.map((o, i) => `- trocar ${o.descricao} ${tokens[i]} ${paraNome}`);
+  return ['Mais de uma tarefa parecida. Envie o comando da que você quer:', ...lines].join('\n');
+}
+
+export function formatSwapDateAmbiguous(descricao: string, dates: string[], paraNome: string): string {
+  const tokens = swapDayTokens(dates);
+  const lines = dates.map((d, i) => `- trocar ${descricao} ${tokens[i]} ${paraNome} (${formatSwapDateLabel(d)})`);
+  return [`Você tem "${descricao}" em mais de um dia. Envie o comando com o dia que você quer:`, ...lines].join('\n');
+}
+
+export function formatSwapRecipientFuzzy(nome: string, command: string): string {
+  return `Você quis dizer ${nome}? Para confirmar, envie: ${command}`;
+}
+
+export function formatSwapOpenReminder(deNome: string, descricao: string, ymd: string): string {
+  return `Você tem um pedido de troca aberto: ${deNome} pediu para você assumir "${descricao}" (${formatSwapDateLabel(ymd)}). Responda "sim" para aceitar ou "não" para recusar.`;
 }
 
 export function formatSwapTargetOnVacation(nome: string): string {
