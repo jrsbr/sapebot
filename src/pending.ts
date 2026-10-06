@@ -4,6 +4,7 @@ import type { Intent } from './types';
 export type PendingAction =
   | { kind: 'ferias_on' }
   | { kind: 'ferias_off' }
+  | { kind: 'letter'; para_person_id: string; texto: string }
   | { kind: 'command'; intent: Intent };
 
 const TTL_MS = 60_000;

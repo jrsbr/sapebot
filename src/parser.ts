@@ -32,6 +32,7 @@ export function parseMessage(text: string): Intent {
   const rest = norm.slice(first.length).trim();
 
   if (first === 'admin') return { type: 'admin', raw }; 
+  if (first === 'carta' || first === 'cartas') return buildLetterIntent(raw);
   if (HELP_WORDS.includes(first)) return { type: 'help' };
   if (STATUS_WORDS.includes(first)) return { type: 'status' };
   if (DONE_WORDS.includes(first)) return buildActionIntent('done', rest);
@@ -48,6 +49,14 @@ export function parseMessage(text: string): Intent {
   if (rest === '' && CANCEL_WORDS.includes(first)) return { type: 'cancel' };
 
   return { type: 'unknown', raw };
+}
+
+function buildLetterIntent(raw: string): Intent {
+  const m = /^\S+\s+(\S+)(?:\s+([\s\S]*))?$/.exec(raw.trim());
+  if (!m) return { type: 'letters' };
+  const recipient = m[1].replace(/^@/, '').replace(/[,:;]+$/, '');
+  const text = (m[2] ?? '').trim();
+  return { type: 'letter', recipient, text };
 }
 
 // Monta o Intent dos tipos 'done' e 'skip', levando em conta se usam
