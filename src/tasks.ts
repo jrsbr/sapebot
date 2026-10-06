@@ -85,7 +85,7 @@ export function markSkippedForToday(task: Task, today: string): Task {
 }
 
 // Compara a distância entre duas strings
-function damerauLevenshtein(
+export function damerauLevenshtein(
   A: string,
   B: string,
 ): number {
