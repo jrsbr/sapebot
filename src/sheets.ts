@@ -1,7 +1,7 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot, Letter } from './types';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot, Letter, Swap, SwapStatus } from './types';
 import { logger } from './logger';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -17,6 +17,7 @@ export const TAB = {
   config: 'Config',
   cachorro: 'Cachorro',
   cartas: 'Cartas',
+  trocas: 'Trocas',
 } as const;
 
 const PESSOAS_HEADER = [
@@ -50,6 +51,7 @@ const BOMDIA_HEADER = ['frase'];
 const CACHORRO_HEADER = ['dia_semana', 'person_id'];
 
 const CARTAS_HEADER = ['letter_id', 'de_person_id', 'para_person_id', 'texto', 'criada_em', 'lida_em'];
+const TROCAS_HEADER = ['swap_id', 'data', 'task_id', 'de_person_id', 'para_person_id', 'status', 'criada_em', 'resolvida_em'];
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 const headerCache: Record<string, string[]> = {};
@@ -88,6 +90,12 @@ function asStatus(v: string): TaskStatus {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === 'pending' || s === 'done' || s === 'skipped' || s === 'cancelled') return s;
   if (s !== '') logger.warn(`status inválido: "${v}", assumindo pending`);
+  return 'pending';
+}
+function asSwapStatus(v: string): SwapStatus {
+  const s = String(v ?? '').trim().toLowerCase();
+  if (s === 'pending' || s === 'accepted' || s === 'declined' || s === 'cancelled' || s === 'failed') return s;
+  if (s !== '') logger.warn(`status de troca inválido: "${v}", assumindo pending`);
   return 'pending';
 }
 function asAutoStatus(v: string): AutoTaskStatus {
@@ -176,6 +184,19 @@ function designatedToValues(d: Designated): Record<string, string> {
     task_id: d.task_id,
     person_id: d.person_id,
     status: d.status,
+  };
+}
+
+function swapToValues(s: Omit<Swap, '__row'>): Record<string, string> {
+  return {
+    swap_id: s.swap_id,
+    data: s.data,
+    task_id: s.task_id,
+    de_person_id: s.de_person_id,
+    para_person_id: s.para_person_id,
+    status: s.status,
+    criada_em: s.criada_em,
+    resolvida_em: s.resolvida_em,
   };
 }
 
@@ -383,6 +404,23 @@ export async function loadDesignated(): Promise<Designated[]> {
   .filter((r) => ((r.task_id ?? '').trim() !== ''))
 }
 
+export async function loadSwaps(): Promise<Swap[]> {
+  const { header, rows } = await loadTable(TAB.trocas);
+  headerCache[TAB.trocas] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    swap_id: (r.values['swap_id'] ?? '').trim(),
+    data: (r.values['data'] ?? '').trim(),
+    task_id: (r.values['task_id'] ?? '').trim(),
+    de_person_id: (r.values['de_person_id'] ?? '').trim(),
+    para_person_id: (r.values['para_person_id'] ?? '').trim(),
+    status: asSwapStatus(r.values['status'] ?? ''),
+    criada_em: (r.values['criada_em'] ?? '').trim(),
+    resolvida_em: (r.values['resolvida_em'] ?? '').trim(),
+  }))
+  .filter((s) => s.swap_id !== '');
+}
+
 export async function loadLetters(): Promise<Letter[]> {
   const { header, rows } = await loadTable(TAB.cartas);
   headerCache[TAB.cartas] = header;
@@ -478,6 +516,25 @@ export async function saveLetters(ls: Letter[]): Promise<void> {
   const header = ensureHeader(TAB.cartas, CARTAS_HEADER);
   const items = ls.map((l) => ({ rowNumber: l.__row, values: letterToValues(l) }));
   await batchWriteRows(TAB.cartas, header, items);
+}
+
+export async function appendSwap(s: Omit<Swap, '__row'>): Promise<void> {
+  const header = ensureHeader(TAB.trocas, TROCAS_HEADER);
+  const client = getClient();
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.trocas}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: [header.map((h) => swapToValues(s)[h] ?? '')] },
+  });
+}
+
+export async function saveSwaps(ss: Swap[]): Promise<void> {
+  if (ss.length === 0) return;
+  const header = ensureHeader(TAB.trocas, TROCAS_HEADER);
+  const items = ss.map((s) => ({ rowNumber: s.__row, values: swapToValues(s) }));
+  await batchWriteRows(TAB.trocas, header, items);
 }
 
 export async function appendDesignated(d: Designated): Promise<void> {

@@ -93,6 +93,20 @@ export interface Designated {
   status: AutoTaskStatus;
 }
 
+export type SwapStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'failed';
+
+export interface Swap {
+  __row: number;
+  swap_id: string;
+  data: string;
+  task_id: string;
+  de_person_id: string;
+  para_person_id: string;
+  status: SwapStatus;
+  criada_em: string;
+  resolvida_em: string;
+}
+
 export interface Letter {
   __row: number;
   letter_id: string;
@@ -128,7 +142,10 @@ export type Intent =
   | { type: 'confirm' }
   | { type: 'cancel' }
   | { type: 'letter'; recipient: string; text: string }
-  | { type: 'letters' };
+  | { type: 'letters' }
+  | { type: 'swap_request'; raw: string }
+  | { type: 'swap_answer'; answer: 'accept' | 'decline'; n?: number }
+  | { type: 'swap_cancel' };
   
 export interface ResolveResult {
   targets: GenericTask[];
