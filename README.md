@@ -111,6 +111,9 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 | `status` | Lista o que ainda falta hoje. |
 | `semana` | Mostra o calendário de tarefas dos próximos sete dias. |
 | `ferias` / `voltar ferias` | Entra ou sai do modo férias (com confirmação). |
+| `trocar <tarefa> [dia] <nome>` | Pede a outro morador para assumir uma tarefa automática sua (ex.: `trocar tirar lixo quarta Joao`). O pedido vale 1 hora e só sai se a pessoa falou com o bot nas últimas 24h. |
+| `sim` / `não` / `aceitar N` / `recusar N` | Responde a um pedido de troca recebido (N escolhe o pedido quando há vários). |
+| `cancelar troca` | Cancela seus pedidos de troca abertos. |
 | `bom dia` | Responde com uma saudação da manhã. |
 | `ajuda` | Mostra os comandos disponíveis. |
 | qualquer outra coisa | Resposta padrão orientando a enviar `ajuda`. |
