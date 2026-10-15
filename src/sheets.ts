@@ -1,7 +1,7 @@
 // Único módulo que fala com o Google Sheets. Lê abas inteiras e escreve em lote.
 import { google, sheets_v4 } from 'googleapis';
 import { env } from './config';
-import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot, Letter, Swap, SwapStatus } from './types';
+import type { Person, Task, MessageRow, TaskStatus, Periodicidade, AutoTask, Designation, Designated, AutoTaskStatus, WalkSlot, Letter, Swap, SwapStatus, XEntry } from './types';
 import { logger } from './logger';
 
 const SCOPES = ['https://www.googleapis.com/auth/spreadsheets'];
@@ -18,6 +18,7 @@ export const TAB = {
   cachorro: 'Cachorro',
   cartas: 'Cartas',
   trocas: 'Trocas',
+  xs: 'Xs',
 } as const;
 
 const PESSOAS_HEADER = [
@@ -27,7 +28,7 @@ const PESSOAS_HEADER = [
 
 const TASK_HEADER = [
   'task_id', 'person_id', 'descricao', 'data', 'status', 'periodicidade',
-  'cobrar', 'last_reminder_at', 'completed_at', 'skip_until', 'observacoes', 'grupo',
+  'cobrar', 'last_reminder_at', 'completed_at', 'skip_until', 'observacoes', 'grupo', 'pendente_desde',
 ];
 const MSG_HEADER = [
   'message_id', 'timestamp', 'direction', 'person_id', 'whatsapp_e164',
@@ -51,6 +52,7 @@ const BOMDIA_HEADER = ['frase'];
 const CACHORRO_HEADER = ['dia_semana', 'person_id'];
 
 const CARTAS_HEADER = ['letter_id', 'de_person_id', 'para_person_id', 'texto', 'criada_em', 'lida_em'];
+const XS_HEADER = ['x_id', 'person_id', 'causa', 'criada_em', 'aplicado_por', 'removida_em', 'motivo_remocao'];
 const TROCAS_HEADER = ['swap_id', 'data', 'task_id', 'de_person_id', 'para_person_id', 'status', 'criada_em', 'resolvida_em'];
 
 let sheetsClient: sheets_v4.Sheets | null = null;
@@ -145,6 +147,7 @@ function taskToValues(t: Task): Record<string, string> {
     skip_until: t.skip_until,
     observacoes: t.observacoes,
     grupo: t.grupo,
+    pendente_desde: t.pendente_desde,
   };
 }
 
@@ -197,6 +200,18 @@ function swapToValues(s: Omit<Swap, '__row'>): Record<string, string> {
     status: s.status,
     criada_em: s.criada_em,
     resolvida_em: s.resolvida_em,
+  };
+}
+
+function xToValues(x: Omit<XEntry, '__row'>): Record<string, string> {
+  return {
+    x_id: x.x_id,
+    person_id: x.person_id,
+    causa: x.causa,
+    criada_em: x.criada_em,
+    aplicado_por: x.aplicado_por,
+    removida_em: x.removida_em,
+    motivo_remocao: x.motivo_remocao,
   };
 }
 
@@ -315,6 +330,7 @@ export async function loadTasks(): Promise<Task[]> {
       skip_until: (r.values['skip_until'] ?? '').trim(),
       observacoes: r.values['observacoes'] ?? '',
       grupo: r.values['grupo'] ?? '',
+      pendente_desde: (r.values['pendente_desde'] ?? '').trim(),
     }));
 }
 
@@ -436,6 +452,22 @@ export async function loadLetters(): Promise<Letter[]> {
   .filter((l) => l.letter_id !== '');
 }
 
+export async function loadXs(): Promise<XEntry[]> {
+  const { header, rows } = await loadTable(TAB.xs);
+  headerCache[TAB.xs] = header;
+  return rows.map((r) => ({
+    __row: r.__row,
+    x_id: (r.values['x_id'] ?? '').trim(),
+    person_id: (r.values['person_id'] ?? '').trim(),
+    causa: r.values['causa'] ?? '',
+    criada_em: (r.values['criada_em'] ?? '').trim(),
+    aplicado_por: (r.values['aplicado_por'] ?? '').trim(),
+    removida_em: (r.values['removida_em'] ?? '').trim(),
+    motivo_remocao: r.values['motivo_remocao'] ?? '',
+  }))
+  .filter((x) => x.x_id !== '');
+}
+
 export async function loadGMPhrases(): Promise<string[]> {
   const { header, rows } = await loadTable(TAB.bomdia);
   headerCache[TAB.bomdia] = header;
@@ -516,6 +548,27 @@ export async function saveLetters(ls: Letter[]): Promise<void> {
   const header = ensureHeader(TAB.cartas, CARTAS_HEADER);
   const items = ls.map((l) => ({ rowNumber: l.__row, values: letterToValues(l) }));
   await batchWriteRows(TAB.cartas, header, items);
+}
+
+export async function appendXs(xs: Omit<XEntry, '__row'>[]): Promise<void> {
+  if (xs.length === 0) return;
+  const header = ensureHeader(TAB.xs, XS_HEADER);
+  const client = getClient();
+  const values = xs.map((x) => header.map((h) => xToValues(x)[h] ?? ''));
+  await client.spreadsheets.values.append({
+    spreadsheetId: env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    range: `${TAB.xs}!A1`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values },
+  });
+}
+
+export async function saveXs(xs: XEntry[]): Promise<void> {
+  if (xs.length === 0) return;
+  const header = ensureHeader(TAB.xs, XS_HEADER);
+  const items = xs.map((x) => ({ rowNumber: x.__row, values: xToValues(x) }));
+  await batchWriteRows(TAB.xs, header, items);
 }
 
 export async function appendSwap(s: Omit<Swap, '__row'>): Promise<void> {

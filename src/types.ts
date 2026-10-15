@@ -32,6 +32,7 @@ export interface Task {
   skip_until: string;
   observacoes: string;
   grupo: string;
+  pendente_desde: string;
 }
 
 export interface MessageRow {
@@ -107,6 +108,17 @@ export interface Swap {
   resolvida_em: string;
 }
 
+export interface XEntry {
+  __row: number;
+  x_id: string;
+  person_id: string;
+  causa: string;
+  criada_em: string;
+  aplicado_por: string;
+  removida_em: string;
+  motivo_remocao: string;
+}
+
 export interface Letter {
   __row: number;
   letter_id: string;
@@ -145,7 +157,8 @@ export type Intent =
   | { type: 'letters' }
   | { type: 'swap_request'; raw: string }
   | { type: 'swap_answer'; answer: 'accept' | 'decline'; n?: number }
-  | { type: 'swap_cancel' };
+  | { type: 'swap_cancel' }
+  | { type: 'x'; raw: string };
   
 export interface ResolveResult {
   targets: GenericTask[];
@@ -166,7 +179,8 @@ export type AdminError =
   | 'periodicity_conflict'
   | 'missing_periodicity'
   | 'invalid_date'
-  | 'duplicate_flag';
+  | 'duplicate_flag'
+  | 'invalid_range';
 
 export interface AdminAdd {
   sub: 'add';
@@ -193,6 +207,7 @@ export interface AdminList {
 export interface AdminReport {
   sub: 'report';
   pessoa?: string;
+  range?: number;
 }
 
 export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport;

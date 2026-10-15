@@ -32,6 +32,7 @@ export function parseMessage(text: string): Intent {
   const rest = norm.slice(first.length).trim();
 
   if (first === 'admin') return { type: 'admin', raw }; 
+  if (first === 'x') return { type: 'x', raw };
   if (first === 'trocar' || first === 'troca') return { type: 'swap_request', raw };
   if ((first === 'solicitar' || first === 'pedir') && tokens[1] === 'troca') return { type: 'swap_request', raw };
   if ((first === 'cancelar' || first === 'cancela') && rest === 'troca') return { type: 'swap_cancel' };

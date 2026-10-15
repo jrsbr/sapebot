@@ -16,9 +16,9 @@ import { parseMessage, normalizeText } from './parser';
 import {
   findPersonByPhone, getPendingTasksForToday,
   markDone, markSkippedForToday, dedupeByRow,
-  brPhoneKey, findPersonByIdOrName, linkedPendingTasks
+  brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatStaleTasksReport, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -33,11 +33,19 @@ import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from 
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, LlmContext, Swap } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { askLlm } from './llm';
+import { loadXs, appendXs, saveXs } from './sheets';
+import { parseXCommand, activeXs, oldestActive, countByPerson, reachedThreshold } from './xlist';
+import {
+  formatXParseError, formatXAdminOnly, formatXTargetNotFound, formatXTargetAmbiguous, formatXSaveFailed, formatXList, formatXTable,
+  formatXAdded, formatXReceived, formatXThreshold, formatXRemovedAdmin, formatXRemoveNone, formatXForgivenSelf, formatXForgivenNone, formatXForgivenNotice,
+} from './messaging';
+import type { XEntry } from './types';
 import { clearPending, getPending, setPending } from './pending';
 
 export const webhookRouter = Router();
 
 const swapLocks = new Set<string>();
+let xBusy = false;
 
 // GET /webhook — verificação da Meta
 webhookRouter.get('/webhook', (req: Request, res: Response) => {
@@ -410,10 +418,15 @@ async function handleOneMessage(
         }
         
         case 'report': {
-          reply = handleAdminReport(command, people, autoTask, designated, logicalToday);
+          reply = handleAdminReport(command, people, autoTask, designated, tasks, logicalToday);
           break;
         }
       }
+      break;
+    }
+
+    case 'x': {
+      reply = await handleX(intent.raw, phone, people, messages, person);
       break;
     }
 
@@ -774,6 +787,112 @@ async function handleSwapCancel(people: Person[], autoTask: AutoTask[], messages
   return formatSwapCancelledToRequester(open.length);
 }
 
+async function broadcastX(people: Person[], messages: MessageRow[], text: string, tag: string, exceptId: string): Promise<void> {
+  for (const p of people) {
+    if (p.person_id === exceptId || !p.ativo || !p.opt_in) continue;
+    try {
+      await notifyPerson(p, text, tag, messages);
+    } catch (err) {
+      logger.error(`Falha ao avisar ${p.person_id} sobre o X`, { error: (err as Error).message });
+    }
+  }
+}
+
+async function handleX(raw: string, phone: string, people: Person[], messages: MessageRow[], person: Person): Promise<string> {
+  const cmd = parseXCommand(raw);
+  if ('error' in cmd) return formatXParseError(cmd.error);
+
+  const isWrite = cmd.sub === 'perdao' || cmd.sub === 'add' || cmd.sub === 'remove';
+  if (cmd.sub === 'add' || cmd.sub === 'remove') {
+    const admins = env.ADMIN_PHONES.split(',').map((s) => brPhoneKey(s)).filter(Boolean);
+    if (!admins.includes(brPhoneKey(phone))) return formatXAdminOnly();
+  }
+
+  if (isWrite) {
+    if (xBusy) return formatXSaveFailed();
+    xBusy = true;
+  }
+  try {
+    let xs: XEntry[];
+    try {
+      xs = await loadXs();
+    } catch (err) {
+      logger.error('Falha ao carregar a tabela do X', { error: (err as Error).message });
+      return formatXSaveFailed();
+    }
+
+    if (cmd.sub === 'lista') {
+      return formatXList(activeXs(xs, person.person_id), person.timezone || env.DEFAULT_TIMEZONE);
+    }
+    if (cmd.sub === 'tabela') {
+      return formatXTable(countByPerson(xs, people).map((r) => ({ nome: r.person.nome, count: r.count })));
+    }
+
+    if (cmd.sub === 'perdao') {
+      const [oldest] = oldestActive(xs, person.person_id, 1);
+      if (!oldest) return formatXForgivenNone();
+      oldest.removida_em = nowIso();
+      oldest.motivo_remocao = cmd.motivo;
+      try {
+        await saveXs([oldest]);
+      } catch (err) {
+        logger.error('Falha ao remover o X', { error: (err as Error).message });
+        return formatXSaveFailed();
+      }
+      const total = activeXs(xs, person.person_id).length;
+      await broadcastX(people, messages, formatXForgivenNotice(person.nome, cmd.motivo, total), 'x_forgiven', person.person_id);
+      return formatXForgivenSelf(cmd.motivo, total);
+    }
+
+    const { match: target, ambiguous } = findPersonByIdOrName(people, cmd.pessoa);
+    if (ambiguous.length > 0) return formatXTargetAmbiguous(cmd.pessoa);
+    if (!target) return formatXTargetNotFound(cmd.pessoa);
+    const before = activeXs(xs, target.person_id).length;
+
+    if (cmd.sub === 'add') {
+      const stamp = nowIso();
+      const entries = Array.from({ length: cmd.n }, () => ({
+        x_id: crypto.randomUUID(),
+        person_id: target.person_id,
+        causa: cmd.causa,
+        criada_em: stamp,
+        aplicado_por: person.person_id,
+        removida_em: '',
+        motivo_remocao: '',
+      }));
+      try {
+        await appendXs(entries);
+      } catch (err) {
+        logger.error('Falha ao registrar o X', { error: (err as Error).message });
+        return formatXSaveFailed();
+      }
+      const after = before + cmd.n;
+      await notifyPerson(target, formatXReceived(cmd.n, cmd.causa, after), 'x_received', messages);
+      if (reachedThreshold(after)) {
+        await broadcastX(people, messages, formatXThreshold(target.nome, after), 'x_threshold', '');
+      }
+      return formatXAdded(target.nome, cmd.n, cmd.causa, after);
+    }
+
+    const removed = oldestActive(xs, target.person_id, cmd.n);
+    if (removed.length === 0) return formatXRemoveNone(target.nome);
+    const stamp = nowIso();
+    for (const x of removed) {
+      x.removida_em = stamp;
+      x.motivo_remocao = `removido por ${person.nome}`;
+    }
+    try {
+      await saveXs(removed);
+    } catch (err) {
+      logger.error('Falha ao remover o X', { error: (err as Error).message });
+      return formatXSaveFailed();
+    }
+    return formatXRemovedAdmin(target.nome, removed.length, before - removed.length);
+  } finally {
+    if (isWrite) xBusy = false;
+  }
+}
+
 async function handleAdminAdd(
   command: AdminAdd,
   people: Person[],
@@ -826,6 +945,7 @@ async function handleAdminAdd(
         completed_at: '', skip_until: '', 
         observacoes: '', 
         grupo: command.grupo,
+        pendente_desde: '',
       };
       await appendTask(newTask);
       criadas.push(`${newId} -> ${person.nome}`);
@@ -1115,10 +1235,13 @@ function handleAdminReport(
   people: Person[], 
   autoTask: AutoTask[], 
   designated: Designated[], 
+  tasks: Task[],
   logicalToday: string,
 ): string {
-  const cut = addDays(logicalToday, -7);
+  const range = command.range ?? 7;
+  const cut = addDays(logicalToday, -range);
   let missedAutoTask = missedInWindow(designated, cut);
+  let stale = staleRecurringTasks(tasks, logicalToday, cut);
   if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) {
@@ -1128,8 +1251,9 @@ function handleAdminReport(
       return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
     }
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
+    stale = stale.filter((s) => s.task.person_id === match.person_id);
   }
-  return formatMissedReport(missedAutoTask, people, autoTask);
+  return [formatMissedReport(missedAutoTask, people, autoTask, range), '', formatStaleTasksReport(stale, people)].join('\n');
 }
 
 async function callLlm (

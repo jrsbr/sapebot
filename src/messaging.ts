@@ -1,5 +1,6 @@
-import type { Person, Letter, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated, AdminError } from './types';
+import type { Person, Letter, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated, AdminError, XEntry, Task } from './types';
 import { nowIso, isoToLocalDate, weekdayName } from './time';
+import type { XParseError } from './xlist';
 
 // ===== Formatação de mensagens =====
 
@@ -192,6 +193,9 @@ export function formatHelpText(): string {
     '- "trocar tirar lixo quarta Joao" → pede para alguém assumir uma tarefa automática sua (formato: trocar <tarefa> [dia] <nome>; o pedido vale por 1 hora)',
     '- "sim" / "não" → responde a um pedido de troca que você recebeu (com vários pedidos, "aceitar 2" ou "recusar 2")',
     '- "cancelar troca" → cancela seus pedidos de troca em aberto',
+    '- "x lista" → mostra seus Xs (a punição da casa), com causa e data',
+    '- "x tabela" → mostra quantos Xs cada morador tem',
+    '- "x perdao <motivo>" → remove seu X mais antigo (todos são avisados do motivo)',
     '- "ajuda" → mostra esta mensagem',
   ].join('\n');
 }
@@ -330,14 +334,30 @@ export function formatMissedReport(
   missed: Designated[], 
   people: Person[], 
   autoTasks: AutoTask[],
+  range = 7,
 ): string {
-  if (missed.length === 0) return 'Nenhuma tarefa automática perdida nos últimos 7 dias.';
+  if (missed.length === 0) return `Nenhuma tarefa automática perdida nos últimos ${range} dias.`;
   const nameFromPersonId = (pId: string) => people.find((p) => p.person_id === pId)?.nome || pId;
   const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
   return [
-    `Aqui está a lista de todas as tarefas não feitas nos últimos 7 dias:`, 
+    `Aqui está a lista de todas as tarefas não feitas nos últimos ${range} dias:`, 
     '',
     missed.map((m, i) => `${i + 1}. ${m.data} - ${descFromTaskId(m.task_id)} - ${nameFromPersonId(m.person_id)}`).join('\n')].join('\n');
+}
+
+export function formatStaleTasksReport(
+  stale: { task: Task; dias: number }[],
+  people: Person[],
+): string {
+  if (stale.length === 0) return 'Nenhuma tarefa diária ou semanal em atraso.';
+  const nameFromPersonId = (pId: string) => people.find((p) => p.person_id === pId)?.nome || pId;
+  return [
+    'Tarefas diárias/semanais em aberto e não feitas:',
+    '',
+    stale
+      .map((s, i) => `${i + 1}. ${s.task.descricao} - ${nameFromPersonId(s.task.person_id)} (${s.task.periodicidade === 'daily' ? 'diária' : 'semanal'}, ${s.dias} ${s.dias === 1 ? 'dia' : 'dias'} sem fazer)`)
+      .join('\n'),
+  ].join('\n');
 }
 
 export function formatWeekText(
@@ -384,6 +404,8 @@ export function adminErrorMessage(error: AdminError): string {
       return 'Faltou a periodicidade: -o (uma vez), -w (semanal) ou -d (diária). Ex.: admin add -p João -m "lavar a louça" -d';
     case 'invalid_date':
       return 'Data inválida. Use o formato AAAA-MM-DD. Ex.: -t 2026-06-20';
+    case 'invalid_range':
+      return 'Período inválido. Use um número inteiro de dias maior que 0. Ex.: admin report 14';
     case 'duplicate_flag':
       return `Flag repetida. Apenas flags do tipo '-p' em operação de add podem ser repetidas.`
     default: {
@@ -403,4 +425,98 @@ export function formatSwapSelfUnavailable(): string {
 
 export function formatSwapInProgress(): string {
   return 'Esse pedido já está sendo processado.';
+}
+
+const pluralX = (n: number) => (n === 1 ? '1 X' : `${n} Xs`);
+
+export function formatXUsage(): string {
+  return [
+    'Comandos do X:',
+    '- "x lista" → seus Xs, com causa e data',
+    '- "x tabela" → quantidade de Xs de cada morador',
+    '- "x perdao <motivo>" → remove seu X mais antigo (todos são avisados)',
+  ].join('\n');
+}
+
+export function formatXAdminUsage(): string {
+  return 'Uso: x add -p <nome> [n] -m "<causa>" | x remove -p <nome> [n]\nExemplo: x add -p Joao 2 -m "louça acumulada"';
+}
+
+export function formatXParseError(error: XParseError): string {
+  switch (error) {
+    case 'unknown_sub':
+      return formatXUsage();
+    case 'missing_reason':
+      return 'Faltou o motivo. Ex.: x perdao cumpri a tarefa atrasada';
+    case 'missing_target':
+    case 'bad_syntax':
+      return formatXAdminUsage();
+    case 'invalid_count':
+      return 'Quantidade inválida. Use um número inteiro. Ex.: x add -p Joao 2 -m "causa"';
+    case 'zero_count':
+      return 'Quantidade zero: nada a fazer. Use um número maior que 0.';
+  }
+}
+
+export function formatXAdminOnly(): string {
+  return 'Só administradores podem usar esse comando do X.';
+}
+
+export function formatXTargetNotFound(query: string): string {
+  return `Não encontrei "${query}". Tente o nome completo ou o pId.`;
+}
+
+export function formatXTargetAmbiguous(query: string): string {
+  return `O nome "${query}" está ambíguo. Tente escrever mais precisamente ou digitar o pId.`;
+}
+
+export function formatXSaveFailed(): string {
+  return 'Não consegui registrar agora. Tente de novo em instantes.';
+}
+
+export function formatXList(entries: XEntry[], tz: string): string {
+  if (entries.length === 0) return 'Você não tem nenhum X.';
+  const lines = entries.map((x, i) => {
+    const ymd = isoToLocalDate(x.criada_em, tz);
+    const date = ymd ? `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(0, 4)}` : 'data desconhecida';
+    return `${i + 1}. ${date} - ${x.causa}`;
+  });
+  return [`Você tem ${pluralX(entries.length)}:`, ...lines].join('\n');
+}
+
+export function formatXTable(rows: { nome: string; count: number }[]): string {
+  if (rows.length === 0) return 'Ninguém na tabela do X.';
+  return ['Tabela do X:', ...rows.map((r) => `${r.nome}: ${r.count}`)].join('\n');
+}
+
+export function formatXAdded(nome: string, n: number, causa: string, total: number): string {
+  return `${pluralX(n)} para ${nome} (${causa}). Total: ${total}.`;
+}
+
+export function formatXReceived(n: number, causa: string, total: number): string {
+  return `Você recebeu ${pluralX(n)} (${causa}). Total: ${total}. Envie "x lista" para ver.`;
+}
+
+export function formatXThreshold(nome: string, total: number): string {
+  return `${nome} chegou a ${pluralX(total)}. A partir do 3º X existem punições.`;
+}
+
+export function formatXRemovedAdmin(nome: string, n: number, total: number): string {
+  return `Removido(s) ${n} X de ${nome}. Total: ${total}.`;
+}
+
+export function formatXRemoveNone(nome: string): string {
+  return `${nome} não tem X.`;
+}
+
+export function formatXForgivenSelf(motivo: string, total: number): string {
+  return `X removido. Motivo: ${motivo}. Você agora tem ${pluralX(total)}.`;
+}
+
+export function formatXForgivenNone(): string {
+  return 'Você não tem X para remover.';
+}
+
+export function formatXForgivenNotice(nome: string, motivo: string, total: number): string {
+  return `${nome} removeu 1 X. Motivo: ${motivo}. Agora tem ${pluralX(total)}.`;
 }
