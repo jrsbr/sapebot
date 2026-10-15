@@ -60,6 +60,7 @@ export function rolloverRecurringTasks(tasks: Task[], today: string): Task[] {
     }
     if (!due) continue;
 
+    t.pendente_desde = t.status === 'pending' ? (t.pendente_desde || t.data) : '';
     t.data = today;
     t.status = 'pending';
     t.cobrar = true;
@@ -70,10 +71,25 @@ export function rolloverRecurringTasks(tasks: Task[], today: string): Task[] {
   return changed;
 }
 
+export function staleRecurringTasks(tasks: Task[], today: string, fromDate = ''): { task: Task; dias: number }[] {
+  const out: { task: Task; dias: number }[] = [];
+  for (const t of tasks) {
+    if (t.periodicidade !== 'daily' && t.periodicidade !== 'weekly') continue;
+    if (t.status !== 'pending' || !t.cobrar) continue;
+    if (fromDate && t.data < fromDate) continue;
+    const since = t.pendente_desde || (t.data && t.data < today ? t.data : '');
+    if (!since) continue;
+    const dias = daysBetween(since, today);
+    if (dias >= (t.periodicidade === 'daily' ? 1 : 7)) out.push({ task: t, dias });
+  }
+  return out.sort((a, b) => b.dias - a.dias || a.task.person_id.localeCompare(b.task.person_id) || a.task.task_id.localeCompare(b.task.task_id));
+}
+
 export function markDone(task: Task, when: string): Task {
   task.status = 'done';
   task.completed_at = when;
   task.cobrar = false;
+  task.pendente_desde = '';
   return task;
 }
 

@@ -62,7 +62,7 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 
 **`Config`** — flags de comportamento em pares `key,value` (ex.: `daily_reminder_enabled`, `send_no_task_message`).
 
-> As tarefas automáticas da casa usam abas próprias, para a definição de cada tarefa e para o calendário/histórico de quem ficou responsável em cada dia. Outras abas auxiliares: `Cachorro` (escala fixa por dia da semana), `Cartas` (cartas entre moradores) e `Trocas` (pedidos de troca de tarefas).
+> As tarefas automáticas da casa usam abas próprias, para a definição de cada tarefa e para o calendário/histórico de quem ficou responsável em cada dia. Outras abas auxiliares: `Cachorro` (escala fixa por dia da semana), `Cartas` (cartas entre moradores), `Trocas` (pedidos de troca de tarefas) e `Xs` (tabela do X, a punição da casa).
 
 > As colunas de data são lidas como texto no formato `YYYY-MM-DD`. As comparações de data dependem disso.
 
@@ -83,6 +83,8 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 **Troca de tarefas automáticas.** Quem não puder fazer uma tarefa da casa pede a outro morador que assuma (`trocar tirar lixo quarta Joao`). O pedido (aba `Trocas`) só sai se a pessoa falou com o bot nas últimas 24h, vale 1 hora e é respondido com `sim`/`não`. Aceita a troca, a tarefa passa a ser de quem aceitou e quem pediu é avisado. Resposta fora do prazo cai no chat livre, que avisa que o pedido expirou.
 
 **Saudação de bom dia.** Uma mensagem de "bom dia" recebe uma saudação com uma frase do dia, quando enviada no período da manhã.
+
+**Tabela do X.** Punição da casa: cada morador tem uma quantidade de Xs (começa em 0, nunca expira; reset é manual na aba `Xs`). Admins dão Xs (`x add -p Joao 2 -m "louça acumulada"`); quem recebe é avisado se estiver na janela de 24h. Qualquer morador pode se perdoar (`x perdao <motivo>`, obrigatório), o que remove o X mais antigo e avisa todos na janela de 24h. Quando alguém chega a 3 Xs, todos na janela são avisados (a partir do 3º existem punições).
 
 **Correspondência aproximada.** Comandos por descrição ou por nome (`feito lavar louça`, `admin add -p Joao ...`) toleram erros de digitação e variações. A semelhança é medida por distância de **Damerau-Levenshtein** (que conta inserções, remoções, trocas e transposições de letras); havendo empate entre candidatos, o sistema pede para desambiguar em vez de adivinhar.
 
@@ -120,6 +122,9 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 | `cancelar troca` | Cancela seus pedidos de troca abertos. |
 | `carta <nome> <mensagem>` | Deixa uma carta para outro morador (ex.: `carta Carlos o jantar é às 20h`). Ela só chega no lembrete da manhã seguinte; com erro de digitação no nome, o bot pede confirmação (`sim`, em até 1 minuto). |
 | `cartas` | Lê as cartas novas já entregues e as marca como lidas. |
+| `x lista` | Mostra seus Xs ativos, com causa e data. |
+| `x tabela` | Mostra a quantidade de Xs de cada morador. |
+| `x perdao <motivo>` | Remove seu X mais antigo; o motivo é obrigatório e todos na janela de 24h são avisados. |
 | `bom dia` | Responde com uma saudação da manhã. |
 | `ajuda` | Mostra os comandos disponíveis. |
 | qualquer outra coisa | Resposta padrão orientando a enviar `ajuda`. |
@@ -152,7 +157,7 @@ Subcomandos:
 | `add` | `-p`, `-m`, uma periodicidade | `-g`, `-t` | Cria a tarefa para cada pessoa em `-p`. Com `-g`, as tarefas criadas ficam vinculadas no grupo. |
 | `remove` | `-m` e um de `-p` ou `-g` | — | Remove a tarefa de uma pessoa (`-p`) ou de todos no grupo (`-g`). |
 | `list` | — | `-p` ou `-g` | Lista as tarefas em aberto (de todos, de uma pessoa ou de um grupo). |
-| `report` | — | `-p` | Relatório das tarefas da casa que ficaram pendentes nos últimos dias. |
+| `report [dias]` | — | `-p` | Relatório das tarefas automáticas perdidas nos últimos `dias` (padrão 7) e das tarefas diárias (1+ dia) e semanais (7+ dias) em aberto e não feitas. |
 
 Exemplos:
 
@@ -166,7 +171,18 @@ admin remove -g cozinha -m "lavar a louça"
 admin list -p João
 admin list -g cozinha
 admin report
+admin report 14
 ```
+
+Comandos de admin do X (mesmo formato de flags):
+
+```
+x add -p João -m "louça acumulada"
+x add -p João 2 -m "louça acumulada"
+x remove -p João
+```
+
+`x add` soma `n` Xs (padrão 1; `-m` opcional) e `x remove` tira os `n` Xs mais antigos da pessoa.
 
 Mensagens de erro são amigáveis e trazem um exemplo de uso correto. Aspas curvas inseridas automaticamente por teclados de celular são normalizadas, então `"…"` e `“…”` funcionam igual.
 
