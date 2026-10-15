@@ -177,9 +177,19 @@ export function parseAdminCommand(
 
     if (sub === 'report') { 
         const pessoaValue = flags.get('-p');
-        
-        if (typeof pessoaValue === 'string') return { sub: 'report', pessoa: pessoaValue };
-        return { sub: 'report'};
+
+        let range: number | undefined;
+        if (result.positionals.length > 1) return { error: 'invalid_range' };
+        if (result.positionals.length === 1) {
+            if (!/^\d+$/.test(result.positionals[0])) return { error: 'invalid_range' };
+            range = parseInt(result.positionals[0], 10);
+            if (range < 1) return { error: 'invalid_range' };
+        }
+
+        const report: { sub: 'report'; pessoa?: string; range?: number } = { sub: 'report' };
+        if (typeof pessoaValue === 'string') report.pessoa = pessoaValue;
+        if (range !== undefined) report.range = range;
+        return report;
     }
 
     return { error: 'unknown_subcommand' };
