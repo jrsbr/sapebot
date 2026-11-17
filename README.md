@@ -158,6 +158,7 @@ Subcomandos:
 | `remove` | `-m` e um de `-p` ou `-g` | — | Remove a tarefa de uma pessoa (`-p`) ou de todos no grupo (`-g`). |
 | `list` | — | `-p` ou `-g` | Lista as tarefas em aberto (de todos, de uma pessoa ou de um grupo). |
 | `report [dias]` | — | `-p` | Relatório das tarefas automáticas perdidas nos últimos `dias` (padrão 7) e das tarefas diárias (1+ dia) e semanais (7+ dias) em aberto e não feitas. |
+| `score` | — | `-p` | Score de confiabilidade (0–100) de cada pessoa ativa, com limite inferior, contagens dos últimos 90 dias e peso de cota. `-p` mostra uma pessoa só. |
 
 Exemplos:
 
@@ -172,6 +173,8 @@ admin list -p João
 admin list -g cozinha
 admin report
 admin report 14
+admin score
+admin score -p João
 ```
 
 Comandos de admin do X (mesmo formato de flags):

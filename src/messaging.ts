@@ -1,6 +1,7 @@
 import type { Person, Letter, MessageRow, SendResult, IncomingMessage, GenericTask, AutoTask, Designated, AdminError, XEntry, Task } from './types';
 import { nowIso, isoToLocalDate, weekdayName } from './time';
 import type { XParseError } from './xlist';
+import type { PersonScore } from './score';
 
 // ===== Formatação de mensagens =====
 
@@ -447,6 +448,48 @@ export function formatAdminRemovedTask(taskId: string, descricao: string, nome: 
 export function formatAdminRemovedGroup(count: number, grupo: string, descricao: string): string {
   const title = count === 1 ? '*Tarefa removida*' : `*Tarefas removidas* (${count})`;
   return [title, `"${descricao}" — grupo ${grupo}`].join('\n');
+}
+
+const SCORE_ALERT_BELOW = 50;
+
+function pct(x: number): string {
+  return String(Math.round(x * 100));
+}
+
+function weightText(w: number): string {
+  return w.toFixed(1).replace('.', ',');
+}
+
+function scoreLine(s: PersonScore): string {
+  const alert = s.mean * 100 < SCORE_ALERT_BELOW ? '⚠️ ' : '';
+  const vacation = s.ferias ? ' _(férias)_' : '';
+  return `${alert}*${s.nome}* — ${pct(s.mean)} (mín. ${pct(s.lower)})${vacation}`;
+}
+
+function scoreCounts(s: PersonScore): string {
+  return `${plural(s.done, 'feita', 'feitas')} · ${plural(s.late, 'tardia', 'tardias')} · ${plural(s.missed, 'perdida', 'perdidas')} · peso ${weightText(s.weight)}`;
+}
+
+export function formatAdminScore(scores: PersonScore[], windowDays: number): string {
+  if (scores.length === 0) return '*Score*\nNenhuma pessoa ativa.';
+  const ranked = [...scores].sort((a, b) => b.mean - a.mean || a.nome.localeCompare(b.nome));
+  if (ranked.length === 1) {
+    const s = ranked[0];
+    return [
+      scoreLine(s),
+      scoreCounts(s),
+      `Evidência efetiva: ${s.evidence.toFixed(1).replace('.', ',')} · pendentes: ${s.pending}`,
+      '',
+      `_Contagens dos últimos ${windowDays} dias. Nota 0–100 estima quem marca as tarefas; "mín." é o limite inferior._`,
+    ].join('\n');
+  }
+  return [
+    `*Score da casa* (últimos ${windowDays} dias)`,
+    '',
+    ranked.map((s, i) => `${i + 1}. ${scoreLine(s)}\n    ${scoreCounts(s)}`).join('\n'),
+    '',
+    '_Nota 0–100 estima quem marca as tarefas, com mais peso no que é recente. "mín." é o limite inferior. Peso = multiplicador de cota de tarefas._',
+  ].join('\n');
 }
 
 export function formatAdminReport(
