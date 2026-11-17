@@ -18,7 +18,8 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, buildTaskListParam, formatLettersOnlyMorningText, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
 import type { Person, Task, MessageRow, SendResult, AutoTask, Designated, Letter } from './types'
-import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments, getPendingAutoForToday } from './autotask';
+import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments, getPendingAutoForToday, selectDayAssignments } from './autotask';
+import { selectDayAssignmentsV2 } from './assign';
 import { buildCombinedList, genericTaskKey } from './generictask';
 import { loadRoutes, updateBestPrice, appendPriceLog } from './flightsheets';
 import { searchFlightPrice } from './serpapi';
@@ -298,7 +299,14 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
   const poolTasks = autoTask.filter((a) => a.tipo !== 'fixo');
   const today = logicalDate(env.DEFAULT_TIMEZONE);
   const cut = addDays(today, -60);
-  const { newDesignated, partialDays } = fullWeekAssignments(pool, poolTasks, designated, today, cut);
+  let useV2 = false;
+  try {
+    useV2 = configFlag(await loadConfig(), 'assignment_v2_enabled', false);
+  } catch (err) {
+    logger.error('Falha ao ler Config; usando a regra antiga de atribuição.', { error: (err as Error).message });
+  }
+  const selector = useV2 ? selectDayAssignmentsV2 : selectDayAssignments;
+  const { newDesignated, partialDays } = fullWeekAssignments(pool, poolTasks, designated, today, cut, selector);
   let appendWork = false;
   
   if (newDesignated.length > 0) {
