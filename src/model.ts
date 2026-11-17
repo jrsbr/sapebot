@@ -18,8 +18,8 @@ const LOSS_CLAMP = 0.02;
 const WARMUP_DAYS = 21;
 const MIN_ROWS_TO_FIT = 40;
 
-const HALF_LIFE_GRID = [7, 14, 30, 60, 90, 180, 365];
-const PRIOR_GRID = [2, 4, 8, 16, 32, 64, 128];
+const HALF_LIFE_GRID = [56, 90, 180, 365, Infinity];
+const PRIOR_GRID = [4, 8, 16, 32, 64, 128];
 
 export interface PersonProb {
   person_id: string;
@@ -28,6 +28,9 @@ export interface PersonProb {
   lower: number;
   evidence: number;
   n: number;
+  alpha: number;
+  beta: number;
+  priorMean: number;
 }
 
 export interface BacktestResult {
@@ -86,6 +89,9 @@ export function predictProbs(
       lower: betaLowerBound(alpha, beta, LOWER_BOUND_Z),
       evidence: e.s + e.f,
       n: e.n,
+      alpha,
+      beta,
+      priorMean: houseMean,
     };
   });
 }

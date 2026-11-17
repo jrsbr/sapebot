@@ -370,40 +370,30 @@ function groupByPerson<T>(
     .sort((x, y) => x.nome.localeCompare(y.nome));
 }
 
-export function formatMissedReport(
-  missed: Designated[],
-  people: Person[],
-  autoTasks: AutoTask[],
-  range = 7,
-): string {
-  const title = `*Tarefas automáticas perdidas* (últimos ${range} dias)`;
-  if (missed.length === 0) return `${title}\nNenhuma.`;
-  const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
-  const blocks = groupByPerson(missed, (m) => m.person_id, people).map((g) => [
-    `*${g.nome}* (${g.items.length})`,
-    ...[...g.items]
-      .sort((a, b) => a.data.localeCompare(b.data))
-      .map((m) => `• ${dayMonth(m.data)} — ${descFromTaskId(m.task_id)}`),
-  ].join('\n'));
-  return [title, '', blocks.join('\n\n')].join('\n');
+function weekdayShort(ymd: string): string {
+  return weekdayName(ymd).replace(/-feira$/, '');
 }
 
-export function formatLateReport(
+export function formatNotDoneReport(
+  missed: Designated[],
   late: Designated[],
   people: Person[],
   autoTasks: AutoTask[],
   range = 7,
 ): string {
-  const title = `*Tarefas feitas com atraso* (últimos ${range} dias)`;
-  if (late.length === 0) return `${title}\nNenhuma.`;
+  const title = `*Tarefas não feitas* (últimos ${range} dias)`;
+  const entries = [
+    ...missed.map((d) => ({ d, late: false })),
+    ...late.map((d) => ({ d, late: true })),
+  ].sort((x, y) =>
+    x.d.data.localeCompare(y.d.data) ||
+    personNameOf(people, x.d.person_id).localeCompare(personNameOf(people, y.d.person_id)) ||
+    x.d.task_id.localeCompare(y.d.task_id));
+  if (entries.length === 0) return `${title}\nNenhuma.`;
   const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
-  const blocks = groupByPerson(late, (m) => m.person_id, people).map((g) => [
-    `*${g.nome}* (${g.items.length})`,
-    ...[...g.items]
-      .sort((a, b) => a.data.localeCompare(b.data))
-      .map((m) => `• ${dayMonth(m.data)} — ${descFromTaskId(m.task_id)}`),
-  ].join('\n'));
-  return [title, '', blocks.join('\n\n')].join('\n');
+  const lines = entries.map(({ d, late: isLate }) =>
+    `• ${dayMonth(d.data)} (${weekdayShort(d.data)}) — ${descFromTaskId(d.task_id)} — ${personNameOf(people, d.person_id)}${isLate ? ' — *atrasada*' : ''}`);
+  return [title, '', ...lines].join('\n');
 }
 
 export function formatStaleTasksReport(
@@ -495,7 +485,7 @@ function scoreLine(s: PersonScore, p: PersonProb): string {
 
 function modelNote(fit: ModelFit): string {
   const mode = fit.fitted ? 'ajustado' : 'parâmetros padrão (poucos dados)';
-  return `_Modelo ${mode}: meia-vida ${fit.params.halfLifeDays}d, prior ${fit.params.priorStrength}. Erro (Brier) ${decimal(fit.model.brier, 3)} contra ${decimal(fit.baseline.brier, 3)} de prever a média da casa para todos._`;
+  return `_Modelo ${mode}: ${Number.isFinite(fit.params.halfLifeDays) ? `meia-vida ${fit.params.halfLifeDays}d` : 'sem desconto de idade'}, prior ${fit.params.priorStrength}. Erro (Brier) ${decimal(fit.model.brier, 3)} contra ${decimal(fit.baseline.brier, 3)} de prever a média da casa para todos._`;
 }
 
 function scoreCounts(s: PersonScore): string {
@@ -605,16 +595,13 @@ export function formatAnalyticsPerson(p: PersonAnalytics, windowDays: number): s
   ].join('\n');
 }
 
-function signedPoints(delta: number): string {
-  const pts = Math.round(delta * 100);
-  if (pts === 0) return '=';
-  return pts > 0 ? `↑ +${pts}` : `↓ −${Math.abs(pts)}`;
+function moverLine(r: WeeklyRow, b: WeeklyBoard): string {
+  const house = b.houseWeek === null ? '' : `; casa ${pct(b.houseBefore)}% → ${pct(b.houseWeek)}%`;
+  return `• ${r.nome} — ${pct(r.weekRate ?? 0)}% em ${plural(r.n, 'tarefa', 'tarefas')} (antes ${pct(r.baseline)}%${house})`;
 }
 
-function moverLine(r: WeeklyRow): string {
-  const pts = Math.round(r.delta * 100);
-  const sign = pts > 0 ? `+${pts}` : `−${Math.abs(pts)}`;
-  return `• ${r.nome} ${sign} pts (${pct(r.prev)}% → ${pct(r.prob)}%)`;
+function changeMark(r: WeeklyRow): string {
+  return r.change === 'up' ? ' ↑' : r.change === 'down' ? ' ↓' : '';
 }
 
 function formatReportBoard(b: WeeklyBoard, days: number): string[] {
@@ -624,7 +611,7 @@ function formatReportBoard(b: WeeklyBoard, days: number): string[] {
     const vacation = r.ferias ? ' _(férias)_' : '';
     const prefix = single ? '' : `${i + 1}. `;
     return [
-      `${prefix}*${r.nome}* — ${pct(r.prob)}% (${signedPoints(r.delta)})${vacation}`,
+      `${prefix}*${r.nome}* — ${pct(r.prob)}%${changeMark(r)}${vacation}`,
       `    ${plural(r.done, 'feita', 'feitas')} · ${plural(r.late, 'tardia', 'tardias')} · ${plural(r.missed, 'perdida', 'perdidas')}`,
     ].join('\n');
   });
@@ -635,10 +622,11 @@ function formatReportBoard(b: WeeklyBoard, days: number): string[] {
     ranking.join('\n'),
     '',
     '*Melhoraram*',
-    ...(b.improved.length > 0 ? b.improved.map(moverLine) : ['• ninguém mudou de forma relevante']),
+    ...(b.improved.length > 0 ? b.improved.map((r) => moverLine(r, b)) : ['• ninguém com evidência suficiente']),
     '',
     '*Pioraram*',
-    ...(b.worsened.length > 0 ? b.worsened.map(moverLine) : ['• ninguém mudou de forma relevante']),
+    ...(b.worsened.length > 0 ? b.worsened.map((r) => moverLine(r, b)) : ['• ninguém com evidência suficiente']),
+    '_Compara a semana com o histórico da própria pessoa, ajustado pela casa. Só entra com 2+ tarefas na semana e evidência de mudança._',
     '',
     `*Totais nos últimos ${days} dias*`,
     `• ${t.assigned} designadas · ${plural(t.done, 'feita', 'feitas')} · ${plural(t.late, 'tardia', 'tardias')} · ${plural(t.missed, 'perdida', 'perdidas')}`,
@@ -662,13 +650,10 @@ export function formatAdminReport(
   return [
     header,
     '',
-    ...(board ? [...formatReportBoard(board, range), ''] : []),
-    formatMissedReport(missed, people, autoTasks, range),
-    '',
-    formatLateReport(late, people, autoTasks, range),
+    formatNotDoneReport(missed, late, people, autoTasks, range),
     '',
     formatStaleTasksReport(stale, people),
-    ...(board ? ['', modelNote(board.fit)] : []),
+    ...(board ? ['', ...formatReportBoard(board, range), '', modelNote(board.fit)] : []),
   ].join('\n');
 }
 
