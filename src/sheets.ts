@@ -103,6 +103,7 @@ function asSwapStatus(v: string): SwapStatus {
 function asAutoStatus(v: string): AutoTaskStatus {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === 'done') return 'done';
+  if (s === 'late') return 'late';
   if (s === 'missed') return 'missed';
   if (s === 'pending') return 'pending';
   if (s !== '') logger.warn(`status auto inválido: "${v}", assumindo pending`);
