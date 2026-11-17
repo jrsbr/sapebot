@@ -330,33 +330,84 @@ export function alreadyRemindedToday(
   );
 }
 
+function dayMonth(ymd: string): string {
+  const [, m, d] = ymd.split('-');
+  return `${d}/${m}`;
+}
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function personNameOf(people: Person[], personId: string): string {
+  return people.find((p) => p.person_id === personId)?.nome || personId;
+}
+
+function groupByPerson<T>(
+  items: T[],
+  personIdOf: (item: T) => string,
+  people: Person[],
+): { nome: string; items: T[] }[] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const id = personIdOf(item);
+    const list = groups.get(id) ?? [];
+    list.push(item);
+    groups.set(id, list);
+  }
+  return [...groups.entries()]
+    .map(([id, list]) => ({ nome: personNameOf(people, id), items: list }))
+    .sort((x, y) => x.nome.localeCompare(y.nome));
+}
+
 export function formatMissedReport(
-  missed: Designated[], 
-  people: Person[], 
+  missed: Designated[],
+  people: Person[],
   autoTasks: AutoTask[],
   range = 7,
 ): string {
-  if (missed.length === 0) return `Nenhuma tarefa automática perdida nos últimos ${range} dias.`;
-  const nameFromPersonId = (pId: string) => people.find((p) => p.person_id === pId)?.nome || pId;
+  const title = `*Tarefas automáticas perdidas* (últimos ${range} dias)`;
+  if (missed.length === 0) return `${title}\nNenhuma.`;
   const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
-  return [
-    `Aqui está a lista de todas as tarefas não feitas nos últimos ${range} dias:`, 
-    '',
-    missed.map((m, i) => `${i + 1}. ${m.data} - ${descFromTaskId(m.task_id)} - ${nameFromPersonId(m.person_id)}`).join('\n')].join('\n');
+  const blocks = groupByPerson(missed, (m) => m.person_id, people).map((g) => [
+    `*${g.nome}* (${g.items.length})`,
+    ...[...g.items]
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .map((m) => `• ${dayMonth(m.data)} — ${descFromTaskId(m.task_id)}`),
+  ].join('\n'));
+  return [title, '', blocks.join('\n\n')].join('\n');
 }
 
 export function formatStaleTasksReport(
   stale: { task: Task; dias: number }[],
   people: Person[],
 ): string {
-  if (stale.length === 0) return 'Nenhuma tarefa diária ou semanal em atraso.';
-  const nameFromPersonId = (pId: string) => people.find((p) => p.person_id === pId)?.nome || pId;
+  const title = '*Tarefas diárias e semanais em atraso*';
+  if (stale.length === 0) return `${title}\nNenhuma.`;
+  const blocks = groupByPerson(stale, (s) => s.task.person_id, people).map((g) => [
+    `*${g.nome}* (${g.items.length})`,
+    ...[...g.items]
+      .sort((a, b) => b.dias - a.dias)
+      .map((s) => `• ${s.task.descricao} — ${s.task.periodicidade === 'daily' ? 'diária' : 'semanal'}, ${plural(s.dias, 'dia', 'dias')} sem fazer`),
+  ].join('\n'));
+  return [title, '', blocks.join('\n\n')].join('\n');
+}
+
+export function formatAdminReport(
+  missed: Designated[],
+  stale: { task: Task; dias: number }[],
+  people: Person[],
+  autoTasks: AutoTask[],
+  range = 7,
+  pessoaNome?: string,
+): string {
+  const header = pessoaNome ? `*Relatório — ${pessoaNome}*` : '*Relatório*';
   return [
-    'Tarefas diárias/semanais em aberto e não feitas:',
+    header,
     '',
-    stale
-      .map((s, i) => `${i + 1}. ${s.task.descricao} - ${nameFromPersonId(s.task.person_id)} (${s.task.periodicidade === 'daily' ? 'diária' : 'semanal'}, ${s.dias} ${s.dias === 1 ? 'dia' : 'dias'} sem fazer)`)
-      .join('\n'),
+    formatMissedReport(missed, people, autoTasks, range),
+    '',
+    formatStaleTasksReport(stale, people),
   ].join('\n');
 }
 

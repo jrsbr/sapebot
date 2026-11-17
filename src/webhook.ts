@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatStaleTasksReport, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -1242,6 +1242,7 @@ function handleAdminReport(
   const cut = addDays(logicalToday, -range);
   let missedAutoTask = missedInWindow(designated, cut);
   let stale = staleRecurringTasks(tasks, logicalToday, cut);
+  let pessoaNome: string | undefined;
   if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) {
@@ -1250,10 +1251,11 @@ function handleAdminReport(
     if (!match) {
       return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
     }
+    pessoaNome = match.nome;
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
     stale = stale.filter((s) => s.task.person_id === match.person_id);
   }
-  return [formatMissedReport(missedAutoTask, people, autoTask, range), '', formatStaleTasksReport(stale, people)].join('\n');
+  return formatAdminReport(missedAutoTask, stale, people, autoTask, range, pessoaNome);
 }
 
 async function callLlm (
