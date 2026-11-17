@@ -19,8 +19,8 @@ export const DEFAULT_SCORE_PARAMS: ScoreParams = {
   lateWeight: 0.5,
   priorStrength: 5,
   defaultMean: 0.8,
-  gamma: 10,
-  maxWeight: 5,
+  gamma: 40,
+  maxWeight: 15,
   windowDays: 90,
   lowerBoundZ: 0.84,
 };
