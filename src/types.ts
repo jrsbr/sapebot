@@ -16,6 +16,7 @@ export interface Person {
   timezone: string;
   observacoes: string;
   ferias: boolean;
+  desde?: string;
 }
 
 export interface Task {

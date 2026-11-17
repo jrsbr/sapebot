@@ -23,7 +23,7 @@ export const TAB = {
 
 const PESSOAS_HEADER = [
   'person_id', 'nome', 'whatsapp_e164', 'ativo', 'opt_in', 'timezone',
-  'observacoes', 'ferias',
+  'observacoes', 'ferias', 'desde',
 ]; 
 
 const TASK_HEADER = [
@@ -124,6 +124,7 @@ function personToValues(p: Person): Record<string, string> {
     timezone: p.timezone,
     observacoes: p.observacoes,
     ferias: boolStr(p.ferias),
+    desde: p.desde ?? '',
   }
 }
 
@@ -308,6 +309,7 @@ export async function loadPeople(): Promise<Person[]> {
       timezone: (r.values['timezone'] ?? '').trim(),
       observacoes: r.values['observacoes'] ?? '',
       ferias: toBool(r.values['ferias']),
+      desde: (r.values['desde'] ?? '').trim(),
     }));
 }
 

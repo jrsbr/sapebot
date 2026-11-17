@@ -1212,6 +1212,7 @@ async function handleFeriasOffConfirm(
   person: Person,
 ): Promise<string> {
   person.ferias = false;
+  person.desde = logicalDate(env.DEFAULT_TIMEZONE);
   try {
     await savePerson(person);
   } catch (err) {
