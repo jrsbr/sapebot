@@ -216,7 +216,13 @@ export interface AdminScore {
   pessoa?: string;
 }
 
-export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport | AdminScore;
+export interface AdminAnalytics {
+  sub: 'analytics';
+  pessoa?: string;
+  range?: number;
+}
+
+export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport | AdminScore | AdminAnalytics;
 
 export interface LlmContext {
   messages: MessageRow[];
