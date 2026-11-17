@@ -191,11 +191,17 @@ export function getPendingAutoForToday(
     person_id: string,
     logicalToday: string,
 ): Designated[] {
+    const lateCut = addDays(logicalToday, -1);
     return designated.filter((d) =>
-        person_id === d.person_id &&
-        logicalToday === d.data &&
-        d.status === 'pending'
+        person_id === d.person_id && (
+            (logicalToday === d.data && d.status === 'pending') ||
+            (lateCut === d.data && d.status === 'missed')
+        )
     );
+}
+
+export function statusAfterDone(d: Designated): 'done' | 'late' {
+    return d.status === 'missed' ? 'late' : 'done';
 }
 
 export function vacationPendingToDelete(
@@ -216,6 +222,20 @@ export function vacationPendingToDelete(
     affectedDays.has(d.data)
   );
   return affectedDesignated;
+}
+
+export function lateInWindow(
+  designated: Designated[],
+  fromDate: string,
+): Designated[] {
+  return designated.filter((d) =>
+    d.data >= fromDate &&
+    d.status === 'late'
+  )
+  .sort((a,b) =>
+    a.data.localeCompare(b.data) ||
+    a.person_id.localeCompare(b.person_id)
+  );
 }
 
 export function missedInWindow(
