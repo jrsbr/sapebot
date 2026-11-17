@@ -595,8 +595,9 @@ export function formatAnalyticsPerson(p: PersonAnalytics, windowDays: number): s
   ].join('\n');
 }
 
-function moverLine(r: WeeklyRow): string {
-  return `• ${r.nome} — ${pct(r.weekRate ?? 0)}% em ${plural(r.n, 'tarefa', 'tarefas')} (antes ${pct(r.baseline)}%)`;
+function moverLine(r: WeeklyRow, b: WeeklyBoard): string {
+  const house = b.houseWeek === null ? '' : `; casa ${pct(b.houseBefore)}% → ${pct(b.houseWeek)}%`;
+  return `• ${r.nome} — ${pct(r.weekRate ?? 0)}% em ${plural(r.n, 'tarefa', 'tarefas')} (antes ${pct(r.baseline)}%${house})`;
 }
 
 function changeMark(r: WeeklyRow): string {
@@ -621,10 +622,10 @@ function formatReportBoard(b: WeeklyBoard, days: number): string[] {
     ranking.join('\n'),
     '',
     '*Melhoraram*',
-    ...(b.improved.length > 0 ? b.improved.map(moverLine) : ['• ninguém com evidência suficiente']),
+    ...(b.improved.length > 0 ? b.improved.map((r) => moverLine(r, b)) : ['• ninguém com evidência suficiente']),
     '',
     '*Pioraram*',
-    ...(b.worsened.length > 0 ? b.worsened.map(moverLine) : ['• ninguém com evidência suficiente']),
+    ...(b.worsened.length > 0 ? b.worsened.map((r) => moverLine(r, b)) : ['• ninguém com evidência suficiente']),
     '_Compara a semana com o histórico da própria pessoa, ajustado pela casa. Só entra com 2+ tarefas na semana e evidência de mudança._',
     '',
     `*Totais nos últimos ${days} dias*`,

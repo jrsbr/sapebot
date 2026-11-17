@@ -28,6 +28,8 @@ export interface WeeklyBoard {
   improved: WeeklyRow[];
   worsened: WeeklyRow[];
   lowChance: string[];
+  houseWeek: number | null;
+  houseBefore: number;
   totals: { assigned: number; done: number; late: number; missed: number };
   fit: ModelFit;
 }
@@ -139,6 +141,8 @@ export function computeWeekly(
     improved,
     worsened,
     lowChance: rows.filter((r) => r.prob < LOW_CHANCE_BELOW).map((r) => r.nome),
+    houseWeek: houseN === 0 ? null : houseS / houseN,
+    houseBefore: priorMean,
     totals,
     fit,
   };
