@@ -2,6 +2,7 @@ import type { Person, Letter, MessageRow, SendResult, IncomingMessage, GenericTa
 import { nowIso, isoToLocalDate, weekdayName } from './time';
 import type { XParseError } from './xlist';
 import type { PersonScore } from './score';
+import type { HouseAnalytics, PersonAnalytics } from './analytics';
 
 // ===== Formatação de mensagens =====
 
@@ -513,6 +514,74 @@ export function formatAdminScore(scores: PersonScore[], windowDays: number): str
     ranked.map((s, i) => `${i + 1}. ${scoreLine(s)}\n    ${scoreCounts(s)}`).join('\n'),
     '',
     '_Nota 0–100 estima quem marca as tarefas, com mais peso no que é recente. "mín." é o limite inferior. Peso = multiplicador de cota de tarefas._',
+  ].join('\n');
+}
+
+function decimal(n: number, digits = 1): string {
+  return n.toFixed(digits).replace('.', ',');
+}
+
+function rateText(rate: number | null): string {
+  return rate === null ? '—' : `${pct(rate)}%`;
+}
+
+function streakText(s: PersonAnalytics['streak']): string {
+  if (!s) return '—';
+  return `${s.length} ${s.kind === 'perdidas' ? (s.length === 1 ? 'perdida' : 'perdidas') : (s.length === 1 ? 'cumprida' : 'cumpridas')}`;
+}
+
+export function formatAnalyticsHouse(h: HouseAnalytics): string {
+  const active = h.people.filter((p) => p.ativo).sort((a, b) => b.score.mean - a.score.mean || a.nome.localeCompare(b.nome));
+  if (active.length === 0) return '*Analytics da casa*\nNenhuma pessoa ativa.';
+  const t = h.totals;
+  const summary = [
+    `• Designadas: ${t.assigned} (${plural(t.done, 'feita', 'feitas')} · ${plural(t.late, 'tardia', 'tardias')} · ${plural(t.missed, 'perdida', 'perdidas')} · ${plural(t.pending, 'pendente', 'pendentes')})`,
+    `• Taxa efetiva: ${rateText(h.effectiveRate)}`,
+    `• Carga por semana: ${decimal(h.perWeekMin)} a ${decimal(h.perWeekMax)} por pessoa`,
+    ...(h.worstTask ? [`• Tarefa mais perdida: ${h.worstTask.descricao} (${h.worstTask.missed} de ${h.worstTask.total})`] : []),
+    ...(h.lowScore.length > 0 ? [`⚠️ Score baixo: ${h.lowScore.join(', ')}`] : []),
+  ];
+  const lines = active.map((p, i) => {
+    const vacation = p.ferias ? ' _(férias)_' : '';
+    const last = p.lastAssigned ? `${dayMonth(p.lastAssigned)}` : '—';
+    return [
+      `${i + 1}. *${p.nome}* — nota ${pct(p.score.mean)} · ${decimal(p.perWeek)}/sem · efetiva ${rateText(p.effectiveRate)}${vacation}`,
+      `    última: ${last} · sequência: ${streakText(p.streak)}`,
+    ].join('\n');
+  });
+  return [
+    `*Analytics da casa* (últimos ${h.windowDays} dias)`,
+    '',
+    '*Resumo*',
+    ...summary,
+    '',
+    '*Por pessoa* (ordenado por nota)',
+    lines.join('\n'),
+    '',
+    '_Taxa efetiva: feita = 1, tardia = 0,5, perdida = 0. Use "admin analytics -p nome" para o detalhe._',
+  ].join('\n');
+}
+
+export function formatAnalyticsPerson(p: PersonAnalytics, windowDays: number): string {
+  const alert = p.score.mean < 0.5 ? ' ⚠️' : '';
+  const since = p.desde ? ` desde ${dayMonth(p.desde)}` : '';
+  const last = p.lastAssigned
+    ? `${dayMonth(p.lastAssigned)} (há ${plural(p.daysSinceLast ?? 0, 'dia', 'dias')})`
+    : 'nenhuma na janela';
+  const tasks = p.tasks.length === 0
+    ? ['Nenhuma tarefa na janela.']
+    : p.tasks.map((t) => `• ${t.descricao} — ${plural(t.total, 'designada', 'designadas')}, ${t.done} feita(s), ${t.late} tardia(s), ${t.missed} perdida(s)`);
+  return [
+    `*Analytics — ${p.nome}* (últimos ${windowDays} dias)${p.ferias ? ' _(férias)_' : ''}`,
+    `Nota ${pct(p.score.mean)} (mín. ${pct(p.score.lower)}) · peso ${decimal(p.score.weight)}${alert}`,
+    `Designadas ${p.assigned} · ${plural(p.done, 'feita', 'feitas')} · ${plural(p.late, 'tardia', 'tardias')} · ${plural(p.missed, 'perdida', 'perdidas')} · ${plural(p.pending, 'pendente', 'pendentes')}`,
+    `Taxa efetiva ${rateText(p.effectiveRate)} · no prazo ${rateText(p.onTimeRate)}`,
+    `Carga ${decimal(p.perWeek)}/sem (exposição de ${plural(p.exposureDays, 'dia', 'dias')}${since})`,
+    `Última designação: ${last}`,
+    `Sequência atual: ${streakText(p.streak)}`,
+    '',
+    '*Por tarefa*',
+    ...tasks,
   ].join('\n');
 }
 

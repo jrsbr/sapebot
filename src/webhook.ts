@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminScore, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminScore, formatAnalyticsHouse, formatAnalyticsPerson, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -30,9 +30,10 @@ import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, lateInWindow, statusAfterDone, vacationPendingToDelete } from './autotask';
-import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, AdminScore, LlmContext, Swap } from './types'
+import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, AdminScore, AdminAnalytics, LlmContext, Swap } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { computeScores, DEFAULT_SCORE_PARAMS } from './score';
+import { computeAnalytics } from './analytics';
 import { askLlm } from './llm';
 import { loadXs, appendXs, saveXs } from './sheets';
 import { parseXCommand, activeXs, oldestActive, countByPerson, reachedThreshold } from './xlist';
@@ -428,6 +429,11 @@ async function handleOneMessage(
 
         case 'score': {
           reply = handleAdminScore(command, people, designated, logicalToday);
+          break;
+        }
+
+        case 'analytics': {
+          reply = handleAdminAnalytics(command, people, autoTask, designated, logicalToday);
           break;
         }
       }
@@ -1280,6 +1286,27 @@ function handleAdminScore(
     scores = all.filter((s) => s.person_id === match.person_id);
   }
   return formatAdminScore(scores, DEFAULT_SCORE_PARAMS.windowDays);
+}
+
+function handleAdminAnalytics(
+  command: AdminAnalytics,
+  people: Person[],
+  autoTask: AutoTask[],
+  designated: Designated[],
+  logicalToday: string,
+): string {
+  const range = command.range ?? 30;
+  const house = computeAnalytics(designated, people, autoTask, logicalToday, range);
+  if (!command.pessoa) return formatAnalyticsHouse(house);
+  const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
+  if (ambiguous.length > 0) {
+    return `O nome "${command.pessoa}" está ambiguo. Tente escrever mais precisamente ou digitar o pId do usuário.`;
+  }
+  if (!match) {
+    return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
+  }
+  const one = house.people.find((p) => p.person_id === match.person_id);
+  return one ? formatAnalyticsPerson(one, range) : `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
 }
 
 async function callLlm (
