@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminScore, formatAdminWeekly, formatAnalyticsHouse, formatAnalyticsPerson, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminScore, formatAnalyticsHouse, formatAnalyticsPerson, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -431,11 +431,6 @@ async function handleOneMessage(
 
         case 'score': {
           reply = handleAdminScore(command, people, designated, logicalToday);
-          break;
-        }
-
-        case 'semana': {
-          reply = formatAdminWeekly(computeWeekly(designated, people, logicalToday, fitModel(designated, people)));
           break;
         }
 
@@ -1258,6 +1253,7 @@ function handleAdminReport(
   let lateAutoTask = lateInWindow(designated, cut);
   let stale = staleRecurringTasks(tasks, logicalToday, cut);
   let pessoaNome: string | undefined;
+  let onlyPersonId: string | undefined;
   if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) {
@@ -1267,11 +1263,13 @@ function handleAdminReport(
       return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
     }
     pessoaNome = match.nome;
+    onlyPersonId = match.person_id;
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
     lateAutoTask = lateAutoTask.filter((a) => a.person_id === match.person_id);
     stale = stale.filter((s) => s.task.person_id === match.person_id);
   }
-  return formatAdminReport(missedAutoTask, lateAutoTask, stale, people, autoTask, range, pessoaNome);
+  const board = computeWeekly(designated, people, logicalToday, fitModel(designated, people), range, onlyPersonId);
+  return formatAdminReport(missedAutoTask, lateAutoTask, stale, people, autoTask, range, pessoaNome, board);
 }
 
 function handleAdminScore(

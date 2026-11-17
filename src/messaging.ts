@@ -617,21 +617,20 @@ function moverLine(r: WeeklyRow): string {
   return `• ${r.nome} ${sign} pts (${pct(r.prev)}% → ${pct(r.prob)}%)`;
 }
 
-export function formatAdminWeekly(b: WeeklyBoard): string {
-  if (b.rows.length === 0) return '*Reunião da semana*\nNenhuma pessoa ativa.';
-  const header = `*Reunião da semana* (${dayMonth(b.from)} a ${dayMonth(b.to)})`;
+function formatReportBoard(b: WeeklyBoard, days: number): string[] {
+  if (b.rows.length === 0) return ['*Chance de fazer a próxima tarefa*', 'Nenhuma pessoa ativa.'];
+  const single = b.rows.length === 1;
   const ranking = b.rows.map((r, i) => {
     const vacation = r.ferias ? ' _(férias)_' : '';
+    const prefix = single ? '' : `${i + 1}. `;
     return [
-      `${i + 1}. *${r.nome}* — ${pct(r.prob)}% (${signedPoints(r.delta)})${vacation}`,
-      `    semana: ${plural(r.done, 'feita', 'feitas')} · ${plural(r.late, 'tardia', 'tardias')} · ${plural(r.missed, 'perdida', 'perdidas')}`,
+      `${prefix}*${r.nome}* — ${pct(r.prob)}% (${signedPoints(r.delta)})${vacation}`,
+      `    ${plural(r.done, 'feita', 'feitas')} · ${plural(r.late, 'tardia', 'tardias')} · ${plural(r.missed, 'perdida', 'perdidas')}`,
     ].join('\n');
   });
   const t = b.totals;
   const rate = t.assigned === 0 ? '—' : `${pct((t.done + 0.5 * t.late) / t.assigned)}%`;
   return [
-    header,
-    '',
     '*Chance de fazer a próxima tarefa*',
     ranking.join('\n'),
     '',
@@ -641,13 +640,11 @@ export function formatAdminWeekly(b: WeeklyBoard): string {
     '*Pioraram*',
     ...(b.worsened.length > 0 ? b.worsened.map(moverLine) : ['• ninguém mudou de forma relevante']),
     '',
-    '*Casa na semana*',
+    `*Totais nos últimos ${days} dias*`,
     `• ${t.assigned} designadas · ${plural(t.done, 'feita', 'feitas')} · ${plural(t.late, 'tardia', 'tardias')} · ${plural(t.missed, 'perdida', 'perdidas')}`,
     `• Taxa efetiva: ${rate}`,
     ...(b.lowChance.length > 0 ? [`⚠️ Chance abaixo de 50%: ${b.lowChance.join(', ')}`] : []),
-    '',
-    modelNote(b.fit),
-  ].join('\n');
+  ];
 }
 
 export function formatAdminReport(
@@ -658,16 +655,20 @@ export function formatAdminReport(
   autoTasks: AutoTask[],
   range = 7,
   pessoaNome?: string,
+  board?: WeeklyBoard,
 ): string {
-  const header = pessoaNome ? `*Relatório — ${pessoaNome}*` : '*Relatório*';
+  const title = pessoaNome ? `*Relatório — ${pessoaNome}*` : '*Relatório*';
+  const header = board ? `${title} (${dayMonth(board.from)} a ${dayMonth(board.to)})` : title;
   return [
     header,
     '',
+    ...(board ? [...formatReportBoard(board, range), ''] : []),
     formatMissedReport(missed, people, autoTasks, range),
     '',
     formatLateReport(late, people, autoTasks, range),
     '',
     formatStaleTasksReport(stale, people),
+    ...(board ? ['', modelNote(board.fit)] : []),
   ].join('\n');
 }
 

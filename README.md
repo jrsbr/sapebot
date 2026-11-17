@@ -157,9 +157,8 @@ Subcomandos:
 | `add` | `-p`, `-m`, uma periodicidade | `-g`, `-t` | Cria a tarefa para cada pessoa em `-p`. Com `-g`, as tarefas criadas ficam vinculadas no grupo. |
 | `remove` | `-m` e um de `-p` ou `-g` | — | Remove a tarefa de uma pessoa (`-p`) ou de todos no grupo (`-g`). |
 | `list` | — | `-p` ou `-g` | Lista as tarefas em aberto (de todos, de uma pessoa ou de um grupo). |
-| `report [dias]` | — | `-p` | Relatório das tarefas automáticas perdidas e feitas com atraso nos últimos `dias` (padrão 7) e das tarefas diárias (1+ dia) e semanais (7+ dias) em aberto e não feitas. |
-| `analytics [dias]` | — | `-p` | Dados tratados da casa (padrão 30 dias): totais, taxa efetiva, carga por semana, tarefa mais perdida, nota por pessoa. `-p` mostra o detalhe de uma pessoa (por tarefa, sequência, exposição). |
-| `semana` | — | — | Ranking para a reunião de segunda: chance de cada pessoa fazer a próxima tarefa, variação contra a semana anterior, quem melhorou e piorou, e contagens da semana (7 dias até ontem). |
+| `report [dias]` | — | `-p` | Resumo para a reunião: ranking da chance de cada pessoa fazer a próxima tarefa com a variação contra o período anterior, quem melhorou e piorou, totais, tarefas automáticas perdidas e feitas com atraso nos últimos `dias` (padrão 7) e das tarefas diárias (1+ dia) e semanais (7+ dias) em aberto e não feitas. |
+| `analytics [dias]` | — | `-p` | Dados tratados da casa (padrão 30 dias): totais, taxa efetiva, carga por semana, tarefa mais perdida, chance de fazer a próxima tarefa por pessoa. `-p` mostra o detalhe de uma pessoa (por tarefa, sequência, exposição). |
 | `score` | — | `-p` | Probabilidade estimada de cada pessoa ativa fazer a próxima tarefa (modelo Beta-Binomial ajustado por backtest, tardia conta meia), com limite inferior, contagens dos últimos 90 dias e peso de cota. `-p` mostra uma pessoa só. |
 
 Exemplos:
@@ -177,7 +176,6 @@ admin report
 admin report 14
 admin analytics
 admin analytics 60 -p João
-admin semana
 admin score
 admin score -p João
 ```

@@ -35,14 +35,16 @@ export function computeWeekly(
   people: Person[],
   today: string,
   fit: ModelFit,
+  days = 7,
+  onlyPersonId?: string,
 ): WeeklyBoard {
-  const from = addDays(today, -7);
+  const from = addDays(today, -days);
   const to = addDays(today, -1);
   const now = predictProbs(designated, people, today, fit.params);
   const before = predictProbs(designated, people, from, fit.params);
 
   const rows: WeeklyRow[] = people
-    .filter((p) => p.ativo)
+    .filter((p) => p.ativo && (!onlyPersonId || p.person_id === onlyPersonId))
     .map((p) => {
       const cur = now.find((x) => x.person_id === p.person_id)!;
       const prev = before.find((x) => x.person_id === p.person_id)!;
