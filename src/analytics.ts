@@ -1,6 +1,7 @@
 import type { AutoTask, Designated, Person } from './types';
 import { addDays, daysBetween } from './time';
 import { computeScores, DEFAULT_SCORE_PARAMS, type PersonScore, type ScoreParams } from './score';
+import type { PersonProb } from './model';
 
 export interface TaskBreakdown {
   task_id: string;
@@ -35,6 +36,8 @@ export interface PersonAnalytics {
   daysSinceLast: number | null;
   streak: Streak | null;
   score: PersonScore;
+  prob: number | null;
+  probLower: number | null;
   tasks: TaskBreakdown[];
 }
 
@@ -78,6 +81,7 @@ export function computeAnalytics(
   today: string,
   windowDays: number,
   params: ScoreParams = DEFAULT_SCORE_PARAMS,
+  probs: PersonProb[] = [],
 ): HouseAnalytics {
   const cut = addDays(today, -windowDays);
   const scores = computeScores(designated, people, today, params);
@@ -125,6 +129,8 @@ export function computeAnalytics(
       daysSinceLast: lastAssigned === null ? null : daysBetween(lastAssigned, today),
       streak: currentStreak(rows),
       score: scores.find((s) => s.person_id === p.person_id)!,
+      prob: probs.find((x) => x.person_id === p.person_id)?.prob ?? null,
+      probLower: probs.find((x) => x.person_id === p.person_id)?.lower ?? null,
       tasks: [...byTask.values()].sort((a, b) => a.descricao.localeCompare(b.descricao)),
     };
   });
@@ -166,6 +172,6 @@ export function computeAnalytics(
     perWeekMin: perWeek.length ? Math.min(...perWeek) : 0,
     perWeekMax: perWeek.length ? Math.max(...perWeek) : 0,
     worstTask,
-    lowScore: active.filter((p) => p.score.mean < LOW_SCORE_BELOW).map((p) => p.nome),
+    lowScore: active.filter((p) => (p.prob ?? p.score.mean) < LOW_SCORE_BELOW).map((p) => p.nome),
   };
 }

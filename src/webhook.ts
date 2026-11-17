@@ -1299,7 +1299,9 @@ function handleAdminAnalytics(
   logicalToday: string,
 ): string {
   const range = command.range ?? 30;
-  const house = computeAnalytics(designated, people, autoTask, logicalToday, range);
+  const fit = fitModel(designated, people);
+  const probs = predictProbs(designated, people, addDays(logicalToday, 1), fit.params);
+  const house = computeAnalytics(designated, people, autoTask, logicalToday, range, DEFAULT_SCORE_PARAMS, probs);
   if (!command.pessoa) return formatAnalyticsHouse(house);
   const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
   if (ambiguous.length > 0) {

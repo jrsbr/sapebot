@@ -547,7 +547,8 @@ function streakText(s: PersonAnalytics['streak']): string {
 }
 
 export function formatAnalyticsHouse(h: HouseAnalytics): string {
-  const active = h.people.filter((p) => p.ativo).sort((a, b) => b.score.mean - a.score.mean || a.nome.localeCompare(b.nome));
+  const chance = (p: PersonAnalytics) => p.prob ?? p.score.mean;
+  const active = h.people.filter((p) => p.ativo).sort((a, b) => chance(b) - chance(a) || a.nome.localeCompare(b.nome));
   if (active.length === 0) return '*Analytics da casa*\nNenhuma pessoa ativa.';
   const t = h.totals;
   const summary = [
@@ -561,7 +562,7 @@ export function formatAnalyticsHouse(h: HouseAnalytics): string {
     const vacation = p.ferias ? ' _(férias)_' : '';
     const last = p.lastAssigned ? `${dayMonth(p.lastAssigned)}` : '—';
     return [
-      `${i + 1}. *${p.nome}* — nota ${pct(p.score.mean)} · ${decimal(p.perWeek)}/sem · efetiva ${rateText(p.effectiveRate)}${vacation}`,
+      `${i + 1}. *${p.nome}* — chance ${pct(chance(p))}% · ${decimal(p.perWeek)}/sem · efetiva ${rateText(p.effectiveRate)}${vacation}`,
       `    última: ${last} · sequência: ${streakText(p.streak)}`,
     ].join('\n');
   });
@@ -571,7 +572,7 @@ export function formatAnalyticsHouse(h: HouseAnalytics): string {
     '*Resumo*',
     ...summary,
     '',
-    '*Por pessoa* (ordenado por nota)',
+    '*Por pessoa* (ordenado pela chance de fazer a próxima tarefa)',
     lines.join('\n'),
     '',
     '_Taxa efetiva: feita = 1, tardia = 0,5, perdida = 0. Use "admin analytics -p nome" para o detalhe._',
@@ -579,7 +580,9 @@ export function formatAnalyticsHouse(h: HouseAnalytics): string {
 }
 
 export function formatAnalyticsPerson(p: PersonAnalytics, windowDays: number): string {
-  const alert = p.score.mean < 0.5 ? ' ⚠️' : '';
+  const chanceNow = p.prob ?? p.score.mean;
+  const chanceLow = p.probLower ?? p.score.lower;
+  const alert = chanceNow < 0.5 ? ' ⚠️' : '';
   const since = p.desde ? ` desde ${dayMonth(p.desde)}` : '';
   const last = p.lastAssigned
     ? `${dayMonth(p.lastAssigned)} (há ${plural(p.daysSinceLast ?? 0, 'dia', 'dias')})`
@@ -589,7 +592,7 @@ export function formatAnalyticsPerson(p: PersonAnalytics, windowDays: number): s
     : p.tasks.map((t) => `• ${t.descricao} — ${plural(t.total, 'designada', 'designadas')}, ${t.done} feita(s), ${t.late} tardia(s), ${t.missed} perdida(s)`);
   return [
     `*Analytics — ${p.nome}* (últimos ${windowDays} dias)${p.ferias ? ' _(férias)_' : ''}`,
-    `Nota ${pct(p.score.mean)} (mín. ${pct(p.score.lower)}) · peso ${decimal(p.score.weight)}${alert}`,
+    `Chance de fazer a próxima: ${pct(chanceNow)}% (mín. ${pct(chanceLow)}%) · peso ${decimal(p.score.weight)}${alert}`,
     `Designadas ${p.assigned} · ${plural(p.done, 'feita', 'feitas')} · ${plural(p.late, 'tardia', 'tardias')} · ${plural(p.missed, 'perdida', 'perdidas')} · ${plural(p.pending, 'pendente', 'pendentes')}`,
     `Taxa efetiva ${rateText(p.effectiveRate)} · no prazo ${rateText(p.onTimeRate)}`,
     `Carga ${decimal(p.perWeek)}/sem (exposição de ${plural(p.exposureDays, 'dia', 'dias')}${since})`,
