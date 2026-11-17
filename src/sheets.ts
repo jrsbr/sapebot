@@ -23,7 +23,7 @@ export const TAB = {
 
 const PESSOAS_HEADER = [
   'person_id', 'nome', 'whatsapp_e164', 'ativo', 'opt_in', 'timezone',
-  'observacoes', 'ferias',
+  'observacoes', 'ferias', 'desde',
 ]; 
 
 const TASK_HEADER = [
@@ -103,6 +103,7 @@ function asSwapStatus(v: string): SwapStatus {
 function asAutoStatus(v: string): AutoTaskStatus {
   const s = String(v ?? '').trim().toLowerCase();
   if (s === 'done') return 'done';
+  if (s === 'late') return 'late';
   if (s === 'missed') return 'missed';
   if (s === 'pending') return 'pending';
   if (s !== '') logger.warn(`status auto inválido: "${v}", assumindo pending`);
@@ -124,6 +125,7 @@ function personToValues(p: Person): Record<string, string> {
     timezone: p.timezone,
     observacoes: p.observacoes,
     ferias: boolStr(p.ferias),
+    desde: p.desde ?? '',
   }
 }
 
@@ -308,6 +310,7 @@ export async function loadPeople(): Promise<Person[]> {
       timezone: (r.values['timezone'] ?? '').trim(),
       observacoes: r.values['observacoes'] ?? '',
       ferias: toBool(r.values['ferias']),
+      desde: (r.values['desde'] ?? '').trim(),
     }));
 }
 

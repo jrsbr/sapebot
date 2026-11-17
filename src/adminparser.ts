@@ -25,11 +25,16 @@ const REPORT_FLAGS: FlagSpec = {
     '-p': { kind: 'value' },
 }
 
+const SCORE_FLAGS: FlagSpec = {
+    '-p': { kind: 'value' },
+}
+
 const SPECS: Record<string, FlagSpec> = {
     add: ADD_FLAGS,
     remove: REMOVE_FLAGS,
     list: LIST_FLAGS,
     report: REPORT_FLAGS,
+    score: SCORE_FLAGS,
 }
 
 export function tokenizeAdmin (
@@ -190,6 +195,12 @@ export function parseAdminCommand(
         if (typeof pessoaValue === 'string') report.pessoa = pessoaValue;
         if (range !== undefined) report.range = range;
         return report;
+    }
+
+    if (sub === 'score') {
+        const pessoaValue = flags.get('-p');
+        if (result.positionals.length > 0) return { error: 'unknown_flag' };
+        return typeof pessoaValue === 'string' ? { sub: 'score', pessoa: pessoaValue } : { sub: 'score' };
     }
 
     return { error: 'unknown_subcommand' };

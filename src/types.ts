@@ -2,7 +2,7 @@
 
 export type TaskStatus = 'pending' | 'done' | 'skipped' | 'cancelled';
 export type Periodicidade = 'daily' | 'weekly' | 'once';
-export type AutoTaskStatus = 'done' | 'missed' | 'pending';
+export type AutoTaskStatus = 'done' | 'late' | 'missed' | 'pending';
 export type TaskKind = 'normal' | 'auto';
 export type FlagSpec = Record<string, { kind: 'bool'| 'value' | 'multi' }>;
 
@@ -16,6 +16,7 @@ export interface Person {
   timezone: string;
   observacoes: string;
   ferias: boolean;
+  desde?: string;
 }
 
 export interface Task {
@@ -210,7 +211,12 @@ export interface AdminReport {
   range?: number;
 }
 
-export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport;
+export interface AdminScore {
+  sub: 'score';
+  pessoa?: string;
+}
+
+export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport | AdminScore;
 
 export interface LlmContext {
   messages: MessageRow[];
