@@ -61,9 +61,15 @@ export function selectDayAssignmentsV2(
   const totalCount = stats.reduce((s, x) => s + x.count, 0);
   const houseRate = totalExposure > 0 ? totalCount / totalExposure : k / pool.length;
 
+  const yesterday = addDays(data, -1);
+  const busyYesterday = new Set(
+    designated.filter((d) => d.data === yesterday).map((d) => d.person_id),
+  );
+  const punish = pool.filter((p) => !busyYesterday.has(p.person_id)).length >= k;
+
   const candidates: Candidate[] = stats.map((x) => {
     const rate = (x.count + params.loadPriorDays * houseRate) / (x.exposure + params.loadPriorDays);
-    const weight = weightOf.get(x.person.person_id) ?? 1;
+    const weight = punish ? (weightOf.get(x.person.person_id) ?? 1) : 1;
     return {
       person: x.person,
       priority: rate / weight,
@@ -77,10 +83,6 @@ export function selectDayAssignmentsV2(
     a.tie - b.tie ||
     a.person.person_id.localeCompare(b.person.person_id));
 
-  const yesterday = addDays(data, -1);
-  const busyYesterday = new Set(
-    designated.filter((d) => d.data === yesterday).map((d) => d.person_id),
-  );
   const fresh = candidates.filter((c) => !busyYesterday.has(c.person.person_id));
   const tired = candidates.filter((c) => busyYesterday.has(c.person.person_id));
   const chosen = [...fresh, ...tired].slice(0, k);
