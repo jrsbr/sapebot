@@ -393,6 +393,37 @@ export function formatStaleTasksReport(
   return [title, '', blocks.join('\n\n')].join('\n');
 }
 
+const PERIODICIDADE_LABEL: Record<Task['periodicidade'], string> = {
+  daily: 'diária',
+  weekly: 'semanal',
+  once: 'única',
+};
+
+const TASK_STATUS_LABEL: Partial<Record<Task['status'], string>> = {
+  skipped: 'pulada',
+  cancelled: 'cancelada',
+};
+
+export function formatAdminList(
+  open: Task[],
+  people: Person[],
+  scope: string | null,
+  emptyMsg: string,
+): string {
+  if (open.length === 0) return emptyMsg;
+  const title = `*Tarefas em aberto${scope ? ` — ${scope}` : ''}* (${open.length})`;
+  const blocks = groupByPerson(open, (t) => t.person_id, people).map((g) => [
+    `*${g.nome}* (${g.items.length})`,
+    ...[...g.items]
+      .sort((a, b) => a.task_id.localeCompare(b.task_id))
+      .map((t) => {
+        const extra = [PERIODICIDADE_LABEL[t.periodicidade], TASK_STATUS_LABEL[t.status]].filter(Boolean).join(', ');
+        return `• ${t.task_id} — ${t.descricao} (${extra})`;
+      }),
+  ].join('\n'));
+  return [title, '', blocks.join('\n\n')].join('\n');
+}
+
 export function formatAdminReport(
   missed: Designated[],
   stale: { task: Task; dias: number }[],

@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminList, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -1026,37 +1026,29 @@ function handleAdminList(
   people: Person[],
   tasks: Task[],
 ): string{
-  const nameFromPid = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
   const aberta = (t: Task) => t.status !== 'done';
 
   let sel: Task[];
   let emptyMsg: string;
+  let scope: string | null = null;
 
   if (command.grupo) {
     sel = tasks.filter((t) => t.grupo === command.grupo);
+    scope = `grupo ${command.grupo}`;
     emptyMsg = `Nenhuma tarefa em aberto no grupo "${command.grupo}".`;
   } else if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) return 'Nome ambíguo. Tente digitar mais precisamente ou o pId.';
     if (!match) return `person_id ou person_name "${command.pessoa}" não encontrado.`;
     sel = tasks.filter((t) => t.person_id === match.person_id);
+    scope = match.nome;
     emptyMsg = `Nenhuma tarefa em aberto para ${match.nome}.`;
   } else {
     sel = tasks;
     emptyMsg = 'Nenhuma tarefa em aberto.';
   }
 
-  const open = sel
-    .filter(aberta)
-    .sort((a, b) =>
-      a.person_id === b.person_id
-        ? a.task_id.localeCompare(b.task_id)
-        : a.person_id.localeCompare(b.person_id),
-    );
-  if (open.length === 0) return emptyMsg;
-  return open
-    .map((t) => `${t.task_id} [${nameFromPid(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
-    .join('\n');
+  return formatAdminList(sel.filter(aberta), people, scope, emptyMsg);
 }
 
 interface GroupDoneNotice {
