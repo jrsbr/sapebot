@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatMissedReport, formatStaleTasksReport, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -926,7 +926,7 @@ async function handleAdminAdd(
     return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
   }, 0);
 
-  const criadas: string[] = [];
+  const criadas: { id: string; nome: string }[] = [];
   const alvos = [...new Map(targetPerson.map((p) => [p.person_id, p])).values()];
   try {
     for (const person of alvos) {
@@ -948,13 +948,12 @@ async function handleAdminAdd(
         pendente_desde: '',
       };
       await appendTask(newTask);
-      criadas.push(`${newId} -> ${person.nome}`);
+      criadas.push({ id: newId, nome: person.nome });
     }
   } catch {
-    return `Falha ao criar tarefas. Criadas até falhar: ${criadas.join(', ') || 'nenhuma'}. Veja os logs.`;
+    return `Falha ao criar tarefas. Criadas até falhar: ${criadas.map((c) => `${c.id} -> ${c.nome}`).join(', ') || 'nenhuma'}. Veja os logs.`;
   }
-  const grupoMsg = command.grupo ? ` [grupo: ${command.grupo}]` : '';
-return `Tarefa(s) criada(s) — "${descricao}" (${per})${grupoMsg}: ${criadas.join(', ')}.`;
+  return formatAdminAdded(descricao, per, command.grupo, criadas);
 }
 
 async function handleAdminRemove(
@@ -999,7 +998,7 @@ async function handleAdminRemove(
     }
     try {
     await deleteTaskById(target.task_id);
-    return `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+    return formatAdminRemovedTask(target.task_id, target.descricao, targetName);
     } catch {
     return 'Falha ao remover a tarefa. Veja os logs.';
     }
@@ -1015,7 +1014,7 @@ async function handleAdminRemove(
   }
   try {
     for (const t of toRemove) await deleteTaskById(t.task_id);
-    return `Removidas ${toRemove.length} tarefa(s) do grupo "${targetNameOrId}": "${toRemove[0].descricao}".`;
+    return formatAdminRemovedGroup(toRemove.length, targetNameOrId, toRemove[0].descricao);
   } catch {
     return 'Falha ao remover as tarefas do grupo. Veja os logs.';
   }
@@ -1026,37 +1025,29 @@ function handleAdminList(
   people: Person[],
   tasks: Task[],
 ): string{
-  const nameFromPid = (pid: string) => people.find((p) => p.person_id === pid)?.nome || pid;
   const aberta = (t: Task) => t.status !== 'done';
 
   let sel: Task[];
   let emptyMsg: string;
+  let scope: string | null = null;
 
   if (command.grupo) {
     sel = tasks.filter((t) => t.grupo === command.grupo);
+    scope = `grupo ${command.grupo}`;
     emptyMsg = `Nenhuma tarefa em aberto no grupo "${command.grupo}".`;
   } else if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) return 'Nome ambíguo. Tente digitar mais precisamente ou o pId.';
     if (!match) return `person_id ou person_name "${command.pessoa}" não encontrado.`;
     sel = tasks.filter((t) => t.person_id === match.person_id);
+    scope = match.nome;
     emptyMsg = `Nenhuma tarefa em aberto para ${match.nome}.`;
   } else {
     sel = tasks;
     emptyMsg = 'Nenhuma tarefa em aberto.';
   }
 
-  const open = sel
-    .filter(aberta)
-    .sort((a, b) =>
-      a.person_id === b.person_id
-        ? a.task_id.localeCompare(b.task_id)
-        : a.person_id.localeCompare(b.person_id),
-    );
-  if (open.length === 0) return emptyMsg;
-  return open
-    .map((t) => `${t.task_id} [${nameFromPid(t.person_id)}] ${t.descricao} (${t.status}, ${t.periodicidade})`)
-    .join('\n');
+  return formatAdminList(sel.filter(aberta), people, scope, emptyMsg);
 }
 
 interface GroupDoneNotice {
@@ -1242,6 +1233,7 @@ function handleAdminReport(
   const cut = addDays(logicalToday, -range);
   let missedAutoTask = missedInWindow(designated, cut);
   let stale = staleRecurringTasks(tasks, logicalToday, cut);
+  let pessoaNome: string | undefined;
   if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) {
@@ -1250,10 +1242,11 @@ function handleAdminReport(
     if (!match) {
       return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
     }
+    pessoaNome = match.nome;
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
     stale = stale.filter((s) => s.task.person_id === match.person_id);
   }
-  return [formatMissedReport(missedAutoTask, people, autoTask, range), '', formatStaleTasksReport(stale, people)].join('\n');
+  return formatAdminReport(missedAutoTask, stale, people, autoTask, range, pessoaNome);
 }
 
 async function callLlm (
