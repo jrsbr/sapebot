@@ -424,6 +424,31 @@ export function formatAdminList(
   return [title, '', blocks.join('\n\n')].join('\n');
 }
 
+export function formatAdminAdded(
+  descricao: string,
+  periodicidade: Task['periodicidade'],
+  grupo: string,
+  criadas: { id: string; nome: string }[],
+): string {
+  const title = criadas.length === 1 ? '*Tarefa criada*' : `*Tarefas criadas* (${criadas.length})`;
+  return [
+    title,
+    `"${descricao}" — ${PERIODICIDADE_LABEL[periodicidade]}`,
+    ...(grupo ? [`Grupo: ${grupo}`] : []),
+    '',
+    ...criadas.map((c) => `• ${c.id} — ${c.nome}`),
+  ].join('\n');
+}
+
+export function formatAdminRemovedTask(taskId: string, descricao: string, nome: string): string {
+  return ['*Tarefa removida*', `${taskId} — "${descricao}" (${nome})`].join('\n');
+}
+
+export function formatAdminRemovedGroup(count: number, grupo: string, descricao: string): string {
+  const title = count === 1 ? '*Tarefa removida*' : `*Tarefas removidas* (${count})`;
+  return [title, `"${descricao}" — grupo ${grupo}`].join('\n');
+}
+
 export function formatAdminReport(
   missed: Designated[],
   stale: { task: Task; dias: number }[],

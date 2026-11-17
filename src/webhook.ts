@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminList, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -926,7 +926,7 @@ async function handleAdminAdd(
     return mm ? Math.max(m, parseInt(mm[1], 10)) : m;
   }, 0);
 
-  const criadas: string[] = [];
+  const criadas: { id: string; nome: string }[] = [];
   const alvos = [...new Map(targetPerson.map((p) => [p.person_id, p])).values()];
   try {
     for (const person of alvos) {
@@ -948,13 +948,12 @@ async function handleAdminAdd(
         pendente_desde: '',
       };
       await appendTask(newTask);
-      criadas.push(`${newId} -> ${person.nome}`);
+      criadas.push({ id: newId, nome: person.nome });
     }
   } catch {
-    return `Falha ao criar tarefas. Criadas até falhar: ${criadas.join(', ') || 'nenhuma'}. Veja os logs.`;
+    return `Falha ao criar tarefas. Criadas até falhar: ${criadas.map((c) => `${c.id} -> ${c.nome}`).join(', ') || 'nenhuma'}. Veja os logs.`;
   }
-  const grupoMsg = command.grupo ? ` [grupo: ${command.grupo}]` : '';
-return `Tarefa(s) criada(s) — "${descricao}" (${per})${grupoMsg}: ${criadas.join(', ')}.`;
+  return formatAdminAdded(descricao, per, command.grupo, criadas);
 }
 
 async function handleAdminRemove(
@@ -999,7 +998,7 @@ async function handleAdminRemove(
     }
     try {
     await deleteTaskById(target.task_id);
-    return `Tarefa removida: ${target.task_id} — "${target.descricao}" (${targetName}).`;
+    return formatAdminRemovedTask(target.task_id, target.descricao, targetName);
     } catch {
     return 'Falha ao remover a tarefa. Veja os logs.';
     }
@@ -1015,7 +1014,7 @@ async function handleAdminRemove(
   }
   try {
     for (const t of toRemove) await deleteTaskById(t.task_id);
-    return `Removidas ${toRemove.length} tarefa(s) do grupo "${targetNameOrId}": "${toRemove[0].descricao}".`;
+    return formatAdminRemovedGroup(toRemove.length, targetNameOrId, toRemove[0].descricao);
   } catch {
     return 'Falha ao remover as tarefas do grupo. Veja os logs.';
   }
