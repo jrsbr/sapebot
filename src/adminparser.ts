@@ -29,12 +29,17 @@ const SCORE_FLAGS: FlagSpec = {
     '-p': { kind: 'value' },
 }
 
+const ANALYTICS_FLAGS: FlagSpec = {
+    '-p': { kind: 'value' },
+}
+
 const SPECS: Record<string, FlagSpec> = {
     add: ADD_FLAGS,
     remove: REMOVE_FLAGS,
     list: LIST_FLAGS,
     report: REPORT_FLAGS,
     score: SCORE_FLAGS,
+    analytics: ANALYTICS_FLAGS,
 }
 
 export function tokenizeAdmin (
@@ -195,6 +200,21 @@ export function parseAdminCommand(
         if (typeof pessoaValue === 'string') report.pessoa = pessoaValue;
         if (range !== undefined) report.range = range;
         return report;
+    }
+
+    if (sub === 'analytics') {
+        const pessoaValue = flags.get('-p');
+        let range: number | undefined;
+        if (result.positionals.length > 1) return { error: 'invalid_range' };
+        if (result.positionals.length === 1) {
+            if (!/^\d+$/.test(result.positionals[0])) return { error: 'invalid_range' };
+            range = parseInt(result.positionals[0], 10);
+            if (range < 1) return { error: 'invalid_range' };
+        }
+        const analytics: { sub: 'analytics'; pessoa?: string; range?: number } = { sub: 'analytics' };
+        if (typeof pessoaValue === 'string') analytics.pessoa = pessoaValue;
+        if (range !== undefined) analytics.range = range;
+        return analytics;
     }
 
     if (sub === 'score') {
