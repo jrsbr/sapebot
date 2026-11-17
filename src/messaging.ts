@@ -485,7 +485,7 @@ function scoreLine(s: PersonScore, p: PersonProb): string {
 
 function modelNote(fit: ModelFit): string {
   const mode = fit.fitted ? 'ajustado' : 'parâmetros padrão (poucos dados)';
-  return `_Modelo ${mode}: meia-vida ${fit.params.halfLifeDays}d, prior ${fit.params.priorStrength}. Erro (Brier) ${decimal(fit.model.brier, 3)} contra ${decimal(fit.baseline.brier, 3)} de prever a média da casa para todos._`;
+  return `_Modelo ${mode}: ${Number.isFinite(fit.params.halfLifeDays) ? `meia-vida ${fit.params.halfLifeDays}d` : 'sem desconto de idade'}, prior ${fit.params.priorStrength}. Erro (Brier) ${decimal(fit.model.brier, 3)} contra ${decimal(fit.baseline.brier, 3)} de prever a média da casa para todos._`;
 }
 
 function scoreCounts(s: PersonScore): string {
@@ -595,16 +595,12 @@ export function formatAnalyticsPerson(p: PersonAnalytics, windowDays: number): s
   ].join('\n');
 }
 
-function signedPoints(delta: number): string {
-  const pts = Math.round(delta * 100);
-  if (pts === 0) return '=';
-  return pts > 0 ? `↑ +${pts}` : `↓ −${Math.abs(pts)}`;
+function moverLine(r: WeeklyRow): string {
+  return `• ${r.nome} — ${pct(r.weekRate ?? 0)}% em ${plural(r.n, 'tarefa', 'tarefas')} (antes ${pct(r.baseline)}%)`;
 }
 
-function moverLine(r: WeeklyRow): string {
-  const pts = Math.round(r.delta * 100);
-  const sign = pts > 0 ? `+${pts}` : `−${Math.abs(pts)}`;
-  return `• ${r.nome} ${sign} pts (${pct(r.prev)}% → ${pct(r.prob)}%)`;
+function changeMark(r: WeeklyRow): string {
+  return r.change === 'up' ? ' ↑' : r.change === 'down' ? ' ↓' : '';
 }
 
 function formatReportBoard(b: WeeklyBoard, days: number): string[] {
@@ -614,7 +610,7 @@ function formatReportBoard(b: WeeklyBoard, days: number): string[] {
     const vacation = r.ferias ? ' _(férias)_' : '';
     const prefix = single ? '' : `${i + 1}. `;
     return [
-      `${prefix}*${r.nome}* — ${pct(r.prob)}% (${signedPoints(r.delta)})${vacation}`,
+      `${prefix}*${r.nome}* — ${pct(r.prob)}%${changeMark(r)}${vacation}`,
       `    ${plural(r.done, 'feita', 'feitas')} · ${plural(r.late, 'tardia', 'tardias')} · ${plural(r.missed, 'perdida', 'perdidas')}`,
     ].join('\n');
   });
@@ -625,10 +621,11 @@ function formatReportBoard(b: WeeklyBoard, days: number): string[] {
     ranking.join('\n'),
     '',
     '*Melhoraram*',
-    ...(b.improved.length > 0 ? b.improved.map(moverLine) : ['• ninguém mudou de forma relevante']),
+    ...(b.improved.length > 0 ? b.improved.map(moverLine) : ['• ninguém com evidência suficiente']),
     '',
     '*Pioraram*',
-    ...(b.worsened.length > 0 ? b.worsened.map(moverLine) : ['• ninguém mudou de forma relevante']),
+    ...(b.worsened.length > 0 ? b.worsened.map(moverLine) : ['• ninguém com evidência suficiente']),
+    '_Compara a semana com o histórico da própria pessoa, ajustado pela casa. Só entra com 2+ tarefas na semana e evidência de mudança._',
     '',
     `*Totais nos últimos ${days} dias*`,
     `• ${t.assigned} designadas · ${plural(t.done, 'feita', 'feitas')} · ${plural(t.late, 'tardia', 'tardias')} · ${plural(t.missed, 'perdida', 'perdidas')}`,
