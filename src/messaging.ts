@@ -5,13 +5,19 @@ import type { PersonScore } from './score';
 
 // ===== Formatação de mensagens =====
 
+const LATE_SUFFIX = ' (atrasada: vale meio ponto)';
+
+function taskLabel(t: GenericTask): string {
+  return t.kind === 'auto' && t.status === 'missed' ? `${t.descricao}${LATE_SUFFIX}` : t.descricao;
+}
+
 export function formatTaskListMultiline(tasks: GenericTask[]): string {
-  return tasks.map((t, i) => `${i + 1}. ${t.descricao}`).join('\n');
+  return tasks.map((t, i) => `${i + 1}. ${taskLabel(t)}`).join('\n');
 }
 
 // Sem quebras de linha: exigência dos parâmetros de template do WhatsApp.
 export function formatTaskListSingleLine(tasks: GenericTask[]): string {
-  return tasks.map((t, i) => `${i + 1}) ${t.descricao}`).join(' | ');
+  return tasks.map((t, i) => `${i + 1}) ${taskLabel(t)}`).join(' | ');
 }
 
 export const LETTER_NOTICE = '* Você tem mensagens não lidas. Envie "cartas" para ler.';
@@ -379,6 +385,24 @@ export function formatMissedReport(
   return [title, '', blocks.join('\n\n')].join('\n');
 }
 
+export function formatLateReport(
+  late: Designated[],
+  people: Person[],
+  autoTasks: AutoTask[],
+  range = 7,
+): string {
+  const title = `*Tarefas feitas com atraso* (últimos ${range} dias)`;
+  if (late.length === 0) return `${title}\nNenhuma.`;
+  const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
+  const blocks = groupByPerson(late, (m) => m.person_id, people).map((g) => [
+    `*${g.nome}* (${g.items.length})`,
+    ...[...g.items]
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .map((m) => `• ${dayMonth(m.data)} — ${descFromTaskId(m.task_id)}`),
+  ].join('\n'));
+  return [title, '', blocks.join('\n\n')].join('\n');
+}
+
 export function formatStaleTasksReport(
   stale: { task: Task; dias: number }[],
   people: Person[],
@@ -494,6 +518,7 @@ export function formatAdminScore(scores: PersonScore[], windowDays: number): str
 
 export function formatAdminReport(
   missed: Designated[],
+  late: Designated[],
   stale: { task: Task; dias: number }[],
   people: Person[],
   autoTasks: AutoTask[],
@@ -505,6 +530,8 @@ export function formatAdminReport(
     header,
     '',
     formatMissedReport(missed, people, autoTasks, range),
+    '',
+    formatLateReport(late, people, autoTasks, range),
     '',
     formatStaleTasksReport(stale, people),
   ].join('\n');

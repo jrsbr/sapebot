@@ -29,7 +29,7 @@ import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboun
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runWeekGeneration } from './scheduler';
-import { getPendingAutoForToday, missedInWindow, vacationPendingToDelete } from './autotask';
+import { getPendingAutoForToday, missedInWindow, lateInWindow, statusAfterDone, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, AdminScore, LlmContext, Swap } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { computeScores, DEFAULT_SCORE_PARAMS } from './score';
@@ -159,6 +159,9 @@ function buildDoneReply(
   }
   if (r.invalidNumbers.length > 0) {
     parts.push(`Obs.: os números ${r.invalidNumbers.join(', ')} não existem na lista de hoje.`);
+  }
+  if (r.targets.some((t) => t.kind === 'auto' && t.status === 'missed')) {
+    parts.push('Obs.: tarefa de ontem marcada com atraso. Ela conta como meio ponto.');
   }
   parts.push(
     remaining.length
@@ -1110,7 +1113,7 @@ function handleDone(
     } else {
         const d = designated.find((x) => x.__row === g.__row);
         if (d) {
-          d.status = 'done';
+          d.status = statusAfterDone(d);
           autoChanged.push(d);
         }
       }
@@ -1239,6 +1242,7 @@ function handleAdminReport(
   const range = command.range ?? 7;
   const cut = addDays(logicalToday, -range);
   let missedAutoTask = missedInWindow(designated, cut);
+  let lateAutoTask = lateInWindow(designated, cut);
   let stale = staleRecurringTasks(tasks, logicalToday, cut);
   let pessoaNome: string | undefined;
   if (command.pessoa) {
@@ -1251,9 +1255,10 @@ function handleAdminReport(
     }
     pessoaNome = match.nome;
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
+    lateAutoTask = lateAutoTask.filter((a) => a.person_id === match.person_id);
     stale = stale.filter((s) => s.task.person_id === match.person_id);
   }
-  return formatAdminReport(missedAutoTask, stale, people, autoTask, range, pessoaNome);
+  return formatAdminReport(missedAutoTask, lateAutoTask, stale, people, autoTask, range, pessoaNome);
 }
 
 function handleAdminScore(

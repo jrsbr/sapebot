@@ -18,7 +18,7 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, buildTaskListParam, formatLettersOnlyMorningText, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
 import type { Person, Task, MessageRow, SendResult, AutoTask, Designated, Letter } from './types'
-import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments } from './autotask';
+import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments, getPendingAutoForToday } from './autotask';
 import { buildCombinedList, genericTaskKey } from './generictask';
 import { loadRoutes, updateBestPrice, appendPriceLog } from './flightsheets';
 import { searchFlightPrice } from './serpapi';
@@ -162,11 +162,7 @@ export async function runDailyReminders(slot = 'manha'): Promise<void> {
     const tz = person.timezone || env.DEFAULT_TIMEZONE;
     const today = localDate(tz);
     const pending = getPendingTasksForToday(tasks, person.person_id, today);
-    const autoPending = designated.filter((d) =>
-      d.person_id === person.person_id && 
-      d.data === logicalToday &&
-      d.status === 'pending'
-    );
+    const autoPending = getPendingAutoForToday(designated, person.person_id, logicalToday);
     const combined = buildCombinedList(pending, autoPending, autoTasks);
     const hasLetters = slot === 'manha' && unreadDelivered(letters, person.person_id, runNow, clock).length > 0;
 
