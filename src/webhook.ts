@@ -18,7 +18,7 @@ import {
   markDone, markSkippedForToday, dedupeByRow,
   brPhoneKey, findPersonByIdOrName, linkedPendingTasks, staleRecurringTasks
 } from './tasks';
-import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminScore, formatAnalyticsHouse, formatAnalyticsPerson, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
+import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboundRow, buildInboundRow, formatAdminReport, formatAdminScore, formatAdminWeekly, formatAnalyticsHouse, formatAnalyticsPerson, formatAdminList, formatAdminAdded, formatAdminRemovedTask, formatAdminRemovedGroup, formatWeekText, adminErrorMessage,
   formatLetterSent, formatLetterUsage, formatLetterConfirm, formatLetterAmbiguous, formatLetterNotFound, formatLetterTooLong, formatLettersReply,
   within24h, formatSwapUsage, formatSwapBadDay, formatSwapTaskNotFound, formatSwapTaskAmbiguous, formatSwapRecipientNotFound, formatSwapTargetOnVacation,
   formatSwapTargetOutsideWindow, formatSwapDuplicate, formatSwapSaveFailed, formatSwapRequestToTarget, formatSwapSendFailed, formatSwapRequestSent,
@@ -35,6 +35,7 @@ import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { computeScores, DEFAULT_SCORE_PARAMS } from './score';
 import { computeAnalytics } from './analytics';
 import { fitModel, predictProbs } from './model';
+import { computeWeekly } from './weekly';
 import { askLlm } from './llm';
 import { loadXs, appendXs, saveXs } from './sheets';
 import { parseXCommand, activeXs, oldestActive, countByPerson, reachedThreshold } from './xlist';
@@ -430,6 +431,11 @@ async function handleOneMessage(
 
         case 'score': {
           reply = handleAdminScore(command, people, designated, logicalToday);
+          break;
+        }
+
+        case 'semana': {
+          reply = formatAdminWeekly(computeWeekly(designated, people, logicalToday, fitModel(designated, people)));
           break;
         }
 

@@ -33,6 +33,8 @@ const ANALYTICS_FLAGS: FlagSpec = {
     '-p': { kind: 'value' },
 }
 
+const SEMANA_FLAGS: FlagSpec = {}
+
 const SPECS: Record<string, FlagSpec> = {
     add: ADD_FLAGS,
     remove: REMOVE_FLAGS,
@@ -40,6 +42,7 @@ const SPECS: Record<string, FlagSpec> = {
     report: REPORT_FLAGS,
     score: SCORE_FLAGS,
     analytics: ANALYTICS_FLAGS,
+    semana: SEMANA_FLAGS,
 }
 
 export function tokenizeAdmin (
@@ -200,6 +203,11 @@ export function parseAdminCommand(
         if (typeof pessoaValue === 'string') report.pessoa = pessoaValue;
         if (range !== undefined) report.range = range;
         return report;
+    }
+
+    if (sub === 'semana') {
+        if (result.positionals.length > 0) return { error: 'unknown_flag' };
+        return { sub: 'semana' };
     }
 
     if (sub === 'analytics') {

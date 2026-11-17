@@ -222,7 +222,11 @@ export interface AdminAnalytics {
   range?: number;
 }
 
-export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport | AdminScore | AdminAnalytics;
+export interface AdminSemana {
+  sub: 'semana';
+}
+
+export type AdminCommand = AdminAdd | AdminRemove | AdminList | AdminReport | AdminScore | AdminAnalytics | AdminSemana;
 
 export interface LlmContext {
   messages: MessageRow[];
