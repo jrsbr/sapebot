@@ -34,6 +34,8 @@ import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, 
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { computeScores, DEFAULT_SCORE_PARAMS } from './score';
 import { computeAnalytics } from './analytics';
+import { fitModel, predictProbs } from './model';
+import { computeWeekly } from './weekly';
 import { askLlm } from './llm';
 import { loadXs, appendXs, saveXs } from './sheets';
 import { parseXCommand, activeXs, oldestActive, countByPerson, reachedThreshold } from './xlist';
@@ -1251,6 +1253,7 @@ function handleAdminReport(
   let lateAutoTask = lateInWindow(designated, cut);
   let stale = staleRecurringTasks(tasks, logicalToday, cut);
   let pessoaNome: string | undefined;
+  let onlyPersonId: string | undefined;
   if (command.pessoa) {
     const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
     if (ambiguous.length > 0) {
@@ -1260,11 +1263,13 @@ function handleAdminReport(
       return `person_id ou person_name "${command.pessoa}" não foi encontrado.`;
     }
     pessoaNome = match.nome;
+    onlyPersonId = match.person_id;
     missedAutoTask = missedAutoTask.filter((a) => a.person_id === match.person_id);
     lateAutoTask = lateAutoTask.filter((a) => a.person_id === match.person_id);
     stale = stale.filter((s) => s.task.person_id === match.person_id);
   }
-  return formatAdminReport(missedAutoTask, lateAutoTask, stale, people, autoTask, range, pessoaNome);
+  const board = computeWeekly(designated, people, logicalToday, fitModel(designated, people), range, onlyPersonId);
+  return formatAdminReport(missedAutoTask, lateAutoTask, stale, people, autoTask, range, pessoaNome, board);
 }
 
 function handleAdminScore(
@@ -1285,7 +1290,9 @@ function handleAdminScore(
     }
     scores = all.filter((s) => s.person_id === match.person_id);
   }
-  return formatAdminScore(scores, DEFAULT_SCORE_PARAMS.windowDays);
+  const fit = fitModel(designated, people);
+  const probs = predictProbs(designated, people, addDays(logicalToday, 1), fit.params);
+  return formatAdminScore(scores, probs, fit, DEFAULT_SCORE_PARAMS.windowDays);
 }
 
 function handleAdminAnalytics(
@@ -1296,7 +1303,9 @@ function handleAdminAnalytics(
   logicalToday: string,
 ): string {
   const range = command.range ?? 30;
-  const house = computeAnalytics(designated, people, autoTask, logicalToday, range);
+  const fit = fitModel(designated, people);
+  const probs = predictProbs(designated, people, addDays(logicalToday, 1), fit.params);
+  const house = computeAnalytics(designated, people, autoTask, logicalToday, range, DEFAULT_SCORE_PARAMS, probs);
   if (!command.pessoa) return formatAnalyticsHouse(house);
   const { match, ambiguous } = findPersonByIdOrName(people, command.pessoa);
   if (ambiguous.length > 0) {
