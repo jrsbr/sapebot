@@ -105,12 +105,21 @@ export function selectDayAssignments(
   return [autoTaskA, autoTaskB];
 }
 
+export type DaySelector = (
+  pool: Person[],
+  autoTasks: AutoTask[],
+  designated: Designated[],
+  data: string,
+  cut: string,
+) => Designated[];
+
 export function fullWeekAssignments(
   pool: Person[],           
   autoTasks: AutoTask[], 
   designated: Designated[], 
   data: string,    
   cut: string,   
+  selector: DaySelector = selectDayAssignments,
 ): { newDesignated: Designated[], partialDays: string[] }{
     const working = [...designated];
     const newDesignated: Designated[] = [];
@@ -130,7 +139,7 @@ export function fullWeekAssignments(
             partialDays.push(futureDate);
             continue;
         }
-        const dayDesignated = selectDayAssignments(pool, autoTasks, working, futureDate, cut);
+        const dayDesignated = selector(pool, autoTasks, working, futureDate, cut);
         working.push(...dayDesignated);
         newDesignated.push(...dayDesignated);
     }
