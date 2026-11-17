@@ -18,8 +18,8 @@ const LOSS_CLAMP = 0.02;
 const WARMUP_DAYS = 21;
 const MIN_ROWS_TO_FIT = 40;
 
-const HALF_LIFE_GRID = [14, 30, 60, 90, 180, 365];
-const PRIOR_GRID = [1, 2, 4, 8, 16];
+const HALF_LIFE_GRID = [7, 14, 30, 60, 90, 180, 365];
+const PRIOR_GRID = [2, 4, 8, 16, 32, 64, 128];
 
 export interface PersonProb {
   person_id: string;
