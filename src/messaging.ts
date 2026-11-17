@@ -370,40 +370,30 @@ function groupByPerson<T>(
     .sort((x, y) => x.nome.localeCompare(y.nome));
 }
 
-export function formatMissedReport(
-  missed: Designated[],
-  people: Person[],
-  autoTasks: AutoTask[],
-  range = 7,
-): string {
-  const title = `*Tarefas automáticas perdidas* (últimos ${range} dias)`;
-  if (missed.length === 0) return `${title}\nNenhuma.`;
-  const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
-  const blocks = groupByPerson(missed, (m) => m.person_id, people).map((g) => [
-    `*${g.nome}* (${g.items.length})`,
-    ...[...g.items]
-      .sort((a, b) => a.data.localeCompare(b.data))
-      .map((m) => `• ${dayMonth(m.data)} — ${descFromTaskId(m.task_id)}`),
-  ].join('\n'));
-  return [title, '', blocks.join('\n\n')].join('\n');
+function weekdayShort(ymd: string): string {
+  return weekdayName(ymd).replace(/-feira$/, '');
 }
 
-export function formatLateReport(
+export function formatNotDoneReport(
+  missed: Designated[],
   late: Designated[],
   people: Person[],
   autoTasks: AutoTask[],
   range = 7,
 ): string {
-  const title = `*Tarefas feitas com atraso* (últimos ${range} dias)`;
-  if (late.length === 0) return `${title}\nNenhuma.`;
+  const title = `*Tarefas não feitas* (últimos ${range} dias)`;
+  const entries = [
+    ...missed.map((d) => ({ d, late: false })),
+    ...late.map((d) => ({ d, late: true })),
+  ].sort((x, y) =>
+    x.d.data.localeCompare(y.d.data) ||
+    personNameOf(people, x.d.person_id).localeCompare(personNameOf(people, y.d.person_id)) ||
+    x.d.task_id.localeCompare(y.d.task_id));
+  if (entries.length === 0) return `${title}\nNenhuma.`;
   const descFromTaskId = (tId: string) => autoTasks.find((a) => a.task_id === tId)?.descricao || tId;
-  const blocks = groupByPerson(late, (m) => m.person_id, people).map((g) => [
-    `*${g.nome}* (${g.items.length})`,
-    ...[...g.items]
-      .sort((a, b) => a.data.localeCompare(b.data))
-      .map((m) => `• ${dayMonth(m.data)} — ${descFromTaskId(m.task_id)}`),
-  ].join('\n'));
-  return [title, '', blocks.join('\n\n')].join('\n');
+  const lines = entries.map(({ d, late: isLate }) =>
+    `• ${dayMonth(d.data)} (${weekdayShort(d.data)}) — ${descFromTaskId(d.task_id)} — ${personNameOf(people, d.person_id)}${isLate ? ' — *atrasada*' : ''}`);
+  return [title, '', ...lines].join('\n');
 }
 
 export function formatStaleTasksReport(
@@ -662,13 +652,10 @@ export function formatAdminReport(
   return [
     header,
     '',
-    ...(board ? [...formatReportBoard(board, range), ''] : []),
-    formatMissedReport(missed, people, autoTasks, range),
-    '',
-    formatLateReport(late, people, autoTasks, range),
+    formatNotDoneReport(missed, late, people, autoTasks, range),
     '',
     formatStaleTasksReport(stale, people),
-    ...(board ? ['', modelNote(board.fit)] : []),
+    ...(board ? ['', ...formatReportBoard(board, range), '', modelNote(board.fit)] : []),
   ].join('\n');
 }
 
