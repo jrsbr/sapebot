@@ -34,6 +34,7 @@ import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, 
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { computeScores, DEFAULT_SCORE_PARAMS } from './score';
 import { computeAnalytics } from './analytics';
+import { fitModel, predictProbs } from './model';
 import { askLlm } from './llm';
 import { loadXs, appendXs, saveXs } from './sheets';
 import { parseXCommand, activeXs, oldestActive, countByPerson, reachedThreshold } from './xlist';
@@ -1285,7 +1286,9 @@ function handleAdminScore(
     }
     scores = all.filter((s) => s.person_id === match.person_id);
   }
-  return formatAdminScore(scores, DEFAULT_SCORE_PARAMS.windowDays);
+  const fit = fitModel(designated, people);
+  const probs = predictProbs(designated, people, addDays(logicalToday, 1), fit.params);
+  return formatAdminScore(scores, probs, fit, DEFAULT_SCORE_PARAMS.windowDays);
 }
 
 function handleAdminAnalytics(

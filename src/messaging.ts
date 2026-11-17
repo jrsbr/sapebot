@@ -3,6 +3,7 @@ import { nowIso, isoToLocalDate, weekdayName } from './time';
 import type { XParseError } from './xlist';
 import type { PersonScore } from './score';
 import type { HouseAnalytics, PersonAnalytics } from './analytics';
+import type { ModelFit, PersonProb } from './model';
 
 // ===== Formatação de mensagens =====
 
@@ -485,35 +486,50 @@ function weightText(w: number): string {
   return w.toFixed(1).replace('.', ',');
 }
 
-function scoreLine(s: PersonScore): string {
-  const alert = s.mean * 100 < SCORE_ALERT_BELOW ? '⚠️ ' : '';
+function scoreLine(s: PersonScore, p: PersonProb): string {
+  const alert = p.prob * 100 < SCORE_ALERT_BELOW ? '⚠️ ' : '';
   const vacation = s.ferias ? ' _(férias)_' : '';
-  return `${alert}*${s.nome}* — ${pct(s.mean)} (mín. ${pct(s.lower)})${vacation}`;
+  return `${alert}*${s.nome}* — ${pct(p.prob)}% de chance (mín. ${pct(p.lower)}%)${vacation}`;
+}
+
+function modelNote(fit: ModelFit): string {
+  const mode = fit.fitted ? 'ajustado' : 'parâmetros padrão (poucos dados)';
+  return `_Modelo ${mode}: meia-vida ${fit.params.halfLifeDays}d, prior ${fit.params.priorStrength}. Erro (Brier) ${decimal(fit.model.brier, 3)} contra ${decimal(fit.baseline.brier, 3)} de prever a média da casa para todos._`;
 }
 
 function scoreCounts(s: PersonScore): string {
   return `${plural(s.done, 'feita', 'feitas')} · ${plural(s.late, 'tardia', 'tardias')} · ${plural(s.missed, 'perdida', 'perdidas')} · peso ${weightText(s.weight)}`;
 }
 
-export function formatAdminScore(scores: PersonScore[], windowDays: number): string {
-  if (scores.length === 0) return '*Score*\nNenhuma pessoa ativa.';
-  const ranked = [...scores].sort((a, b) => b.mean - a.mean || a.nome.localeCompare(b.nome));
+export function formatAdminScore(
+  scores: PersonScore[],
+  probs: PersonProb[],
+  fit: ModelFit,
+  windowDays: number,
+): string {
+  const rows = scores
+    .map((s) => ({ s, p: probs.find((x) => x.person_id === s.person_id) }))
+    .filter((r): r is { s: PersonScore; p: PersonProb } => r.p !== undefined);
+  if (rows.length === 0) return '*Score*\nNenhuma pessoa ativa.';
+  const ranked = [...rows].sort((a, b) => b.p.prob - a.p.prob || a.s.nome.localeCompare(b.s.nome));
   if (ranked.length === 1) {
-    const s = ranked[0];
+    const { s, p } = ranked[0];
     return [
-      scoreLine(s),
+      scoreLine(s, p),
       scoreCounts(s),
-      `Evidência efetiva: ${s.evidence.toFixed(1).replace('.', ',')} · pendentes: ${s.pending}`,
+      `Evidência efetiva: ${decimal(p.evidence)} · pendentes: ${s.pending}`,
       '',
-      `_Contagens dos últimos ${windowDays} dias. Nota 0–100 estima quem marca as tarefas; "mín." é o limite inferior._`,
+      `_Contagens dos últimos ${windowDays} dias. "Chance" é a probabilidade estimada de a pessoa fazer a próxima tarefa; "mín." é o limite inferior._`,
+      modelNote(fit),
     ].join('\n');
   }
   return [
     `*Score da casa* (últimos ${windowDays} dias)`,
     '',
-    ranked.map((s, i) => `${i + 1}. ${scoreLine(s)}\n    ${scoreCounts(s)}`).join('\n'),
+    ranked.map(({ s, p }, i) => `${i + 1}. ${scoreLine(s, p)}\n    ${scoreCounts(s)}`).join('\n'),
     '',
-    '_Nota 0–100 estima quem marca as tarefas, com mais peso no que é recente. "mín." é o limite inferior. Peso = multiplicador de cota de tarefas._',
+    '_Chance = probabilidade estimada de fazer a próxima tarefa (tardia conta meia). Peso = multiplicador de cota na atribuição._',
+    modelNote(fit),
   ].join('\n');
 }
 
