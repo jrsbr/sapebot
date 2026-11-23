@@ -88,7 +88,7 @@ export function formatSwapBadDay(dayToken: string): string {
 }
 
 export function formatSwapTaskNotFound(taskQuery: string, ymd: string | null): string {
-  return `Não encontrei "${taskQuery}" entre suas tarefas automáticas pendentes${ymd ? ` em ${formatSwapDateLabel(ymd)}` : ''}. Envie "semana" para ver suas tarefas.`;
+  return `Não encontrei "${taskQuery}" entre suas tarefas automáticas pendentes${ymd ? ` em ${formatSwapDateLabel(ymd)}` : ''}. Só dá para trocar tarefas já sorteadas (hoje e escala fixa); as de dias futuros na "semana" ainda são previsão. Envie "semana" para ver suas tarefas.`;
 }
 
 function swapDayWord(ymd: string): string {
@@ -664,7 +664,7 @@ export function formatChance(prob: number): string {
 }
 
 export function formatCalendarItem(item: CalendarItem): string {
-  return item.prob === undefined ? item.descricao : `${item.descricao} (${formatChance(item.prob)})`;
+  return item.prob === undefined || item.prob >= 1 ? item.descricao : `${item.descricao} (${formatChance(item.prob)})`;
 }
 
 export function formatWeekText(
@@ -684,7 +684,7 @@ export function formatWeekText(
   ]. join('\n');
   return [
     reply,
-    `Calendário da Semana (as tarefas automáticas de dias futuros são previsões, com a chance de cada uma):`,
+    `Calendário da Semana (tarefa sem % é certa; com %, é a chance estimada de você de fato pegar essa tarefa):`,
     calendar.map((d) => `- *${weekdayName(d.data)}*: ${d.itens.map(formatCalendarItem).join(', ')}`).join('\n')
   ].join('\n');
 }
