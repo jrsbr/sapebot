@@ -12,6 +12,15 @@ const MAX_LLM_ITER = 5;
 const SUPER_MAX_ITER = 10;
 const SUPER_HISTORY_LIMIT = 200;
 const SUPER_REPLY_LIMIT = 3900;
+const TOOL_BUDGET_CHARS = 150_000;
+
+function generationConfigFor(sup: boolean, model: string): Record<string, unknown> {
+  const base = sup
+    ? { maxOutputTokens: 8192, thinkingConfig: { thinkingBudget: 2048 } }
+    : { maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 512 } };
+  if (/^gemini-[3-9]/.test(model)) return base;
+  return { ...base, temperature: sup ? 0.7 : 0.6 };
+}
 
 const SYSTEM_PROMPT = `Você é o Sapebot, um bot de WhatsApp que organiza as tarefas domésticas de uma república. Você está conversando direto com um morador: ele mandou uma mensagem que você não reconheceu como comando, então responda de forma breve e simpática, na primeira pessoa, como o próprio Sapebot (ex.: "Oi, eu sou o Sapebot, tudo certo?").
 
@@ -75,17 +84,15 @@ export async function askLlm(
     const sysPrompt = { parts: [{ text: sup ? buildSuperPrompt(ctx) : `${SYSTEM_PROMPT}\n\nData de hoje: ${ctx.today} (${weekdayName(ctx.today)}).` }] };
     const history = buildHistory(ctx.messages, ctx.person.whatsapp_e164, sup ? SUPER_HISTORY_LIMIT : 6, sup);
     const userContent: any[] = [...history, { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
-    const config = sup
-      ? { maxOutputTokens: 6144, temperature: 0.7, thinkingConfig: { thinkingBudget: 2048 } }
-      : { maxOutputTokens: 800, temperature: 0.6, thinkingConfig: { thinkingBudget: 512 } };
-
     let model = sup ? env.GEMINI_MODEL_SUPERADMIN : env.GEMINI_MODEL;
+    let usedFallback = false;
+    let toolChars = 0;
     const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: sup ? 90000 : 20000 };
 
     for (let i = 0 ; i < maxIter ; i ++) {
         try {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-            const body: any = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations: declarations }] };
+            const body: any = { systemInstruction: sysPrompt, contents: userContent, generationConfig: generationConfigFor(sup, model), tools: [{ functionDeclarations: declarations }] };
             if (sup ? i === maxIter - 1 : i > 0) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
             const resp = await postWithRetry(url, body, opts);
             const cand = resp.data.candidates?.[0];
@@ -95,28 +102,41 @@ export async function askLlm(
                 logger.warn('Gemini retornou sem parts.', { iter: i, finishReason: cand?.finishReason, candidate: JSON.stringify(cand) });
                 return null;
             }
-            const fnCall = parsedParts.find((p: any) => p.functionCall)?.functionCall;
-            if (!fnCall) {
+            const fnCalls = parsedParts.filter((p: any) => p.functionCall).map((p: any) => p.functionCall);
+            if (fnCalls.length === 0) {
                 const text = parsedParts.filter((p: any) => p.text).map((p: any) => p.text).join('').trim();
                 if (!text) {
                     logger.warn('Gemini sem texto na resposta final.', { iter: i, finishReason: cand?.finishReason });
                     return null;
                 }
-                return sup && text.length > SUPER_REPLY_LIMIT ? `${text.slice(0, SUPER_REPLY_LIMIT - 60)}\n…(resposta cortada; peça para continuar)` : text;
+                const final = sup && text.length > SUPER_REPLY_LIMIT ? `${text.slice(0, SUPER_REPLY_LIMIT - 60)}\n…(resposta cortada; peça para continuar)` : text;
+                return usedFallback ? `(modelo reserva ${model})\n${final}` : final;
             }
             userContent.push(parsedContent);
-            const result = sup
-              ? await runSuperTool(fnCall.name, ctx, fnCall.args ?? {})
-              : await runTool(fnCall.name, ctx, fnCall.args ?? {});
-            logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name, result: sup ? `${JSON.stringify(result).length} chars` : JSON.stringify(result) });
-            const cleanResult = JSON.parse(sanitizeForGemini(JSON.stringify(result)));
-            userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: cleanResult } }] });
+            const responseParts: any[] = [];
+            for (const fnCall of fnCalls) {
+                let result: object = sup
+                  ? await runSuperTool(fnCall.name, ctx, fnCall.args ?? {})
+                  : await runTool(fnCall.name, ctx, fnCall.args ?? {});
+                const size = JSON.stringify(result).length;
+                if (sup && toolChars + size > TOOL_BUDGET_CHARS) {
+                    result = { erro: 'Limite de dados lidos nesta pergunta atingido. Responda com o que já foi lido.' };
+                } else {
+                    toolChars += size;
+                }
+                logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name, result: sup ? `${size} chars` : JSON.stringify(result) });
+                const cleanResult = JSON.parse(sanitizeForGemini(JSON.stringify(result)));
+                responseParts.push({ functionResponse: { name: fnCall.name, response: cleanResult } });
+            }
+            userContent.push({ role: 'user', parts: responseParts });
 
         } catch (err) {
             const e = err as any;
             logger.error('Falha na requisição ao Gemini.', { model, error: e?.message, status: e?.response?.status, data: e?.response?.data });
             if (sup && model !== env.GEMINI_MODEL) {
+                logger.warn('Super admin caiu no modelo reserva.', { de: model, para: env.GEMINI_MODEL });
                 model = env.GEMINI_MODEL;
+                usedFallback = true;
                 continue;
             }
             return null;
