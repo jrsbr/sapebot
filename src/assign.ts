@@ -3,6 +3,8 @@ import { addDays, daysBetween } from './time';
 import { computeScores, DEFAULT_SCORE_PARAMS, type ScoreParams } from './score';
 import { countDoneByTaskPerson } from './autotask';
 
+export const LOAD_WINDOW_DAYS = 60;
+
 export interface AssignParams {
   loadPriorDays: number;
   unknownOriginDays: number;

@@ -113,37 +113,19 @@ export type DaySelector = (
   cut: string,
 ) => Designated[];
 
-export function fullWeekAssignments(
-  pool: Person[],           
-  autoTasks: AutoTask[], 
-  designated: Designated[], 
-  data: string,    
-  cut: string,   
+export function dayAssignments(
+  pool: Person[],
+  autoTasks: AutoTask[],
+  designated: Designated[],
+  data: string,
+  cut: string,
   selector: DaySelector = selectDayAssignments,
-): { newDesignated: Designated[], partialDays: string[] }{
-    const working = [...designated];
-    const newDesignated: Designated[] = [];
-    const tasksId = autoTasks.map((a) => a.task_id);
-    let partialDays: string[] = [];
-    const tasksFromDay = (
-        day: string,
-    ): string[] => {
-        return working.filter((d) => d.data === day).map((d) => d.task_id);
-    }
-    for (let i = 0 ; i < 7 ; i ++) {
-        const futureDate = addDays(data, i);
-        const dayTasksId = tasksFromDay(futureDate);
-        const missingTasks = tasksId.filter((t) => !dayTasksId.includes(t));
-        if (missingTasks.length === 0) continue;
-        if (missingTasks.length < tasksId.length) {
-            partialDays.push(futureDate);
-            continue;
-        }
-        const dayDesignated = selector(pool, autoTasks, working, futureDate, cut);
-        working.push(...dayDesignated);
-        newDesignated.push(...dayDesignated);
-    }
-    return { newDesignated, partialDays };
+): { newDesignated: Designated[], partial: boolean } {
+  const present = new Set(designated.filter((d) => d.data === data).map((d) => d.task_id));
+  const missing = autoTasks.filter((a) => !present.has(a.task_id));
+  if (missing.length === 0) return { newDesignated: [], partial: false };
+  if (missing.length < autoTasks.length) return { newDesignated: [], partial: true };
+  return { newDesignated: selector(pool, autoTasks, designated, data, cut), partial: false };
 }
 
 const WALK_EPOCH = '2026-01-05'; // segunda-feira, referência arbitrária para a rotação
