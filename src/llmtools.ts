@@ -5,6 +5,7 @@ import { buildCombinedList, buildWeekCalendar, resolveTargets } from "./generict
 import { weekdayName, addDays } from "./time";
 import { formatHelpText } from "./messaging";
 import { setPending } from "./pending";
+import { computeWeekForecast } from "./weekforecast";
 
 // nao mexer, formato que o Gemini espera
 interface FunctionDeclaration {
@@ -13,7 +14,7 @@ interface FunctionDeclaration {
   parameters: { type: 'object'; properties: Record<string, unknown> };
 }
 
-type Executor = (ctx: LlmContext, args: Record<string, unknown>) => object;
+type Executor = (ctx: LlmContext, args: Record<string, unknown>) => object | Promise<object>;
 
 const noArgs = { type: 'object' as const, properties: {} };
 
@@ -36,19 +37,24 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
   minha_semana: {
     declaration: {
       name: 'minha_semana',
-      description: 'Mostra o calendário das tarefas da própria pessoa para os próximos 7 dias.',
+      description: 'Mostra o calendário das tarefas da própria pessoa para os próximos 7 dias. As tarefas automáticas de dias futuros são previsões probabilísticas: cada uma traz chance_percent.',
       parameters: noArgs,
     },
-    run: (ctx) => {
+    run: async (ctx) => {
       const pid = ctx.person.person_id;
       const pending = getPendingTasksForToday(ctx.tasks, pid, ctx.today);
       const autoPending = getPendingAutoForToday(ctx.designated, pid, ctx.logicalToday);
       const combined = buildCombinedList(pending, autoPending, ctx.autoTask);
-      const calendar = buildWeekCalendar(ctx.tasks, ctx.designated, ctx.autoTask, pid, ctx.today, ctx.logicalToday);
+      const forecast = await computeWeekForecast(ctx.designated, ctx.people, ctx.autoTask, ctx.logicalToday).catch(() => null);
+      const calendar = buildWeekCalendar(ctx.tasks, ctx.designated, ctx.autoTask, forecast, pid, ctx.today, ctx.logicalToday);
       return {
         hoje: combined.map((t) => t.descricao),
         dia_da_semana_hoje: weekdayName(ctx.today),
-        semana: calendar.map((d) => ({ dia: weekdayName(d.data), data: d.data, descricoes: d.descricoes })),
+        semana: calendar.map((d) => ({
+          dia: weekdayName(d.data),
+          data: d.data,
+          tarefas: d.itens.map((i) => ({ descricao: i.descricao, chance_percent: i.prob === undefined ? undefined : Math.round(i.prob * 100) })),
+        })),
       };
     },
   },
@@ -56,7 +62,7 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
   tarefas_casa: {
     declaration: {
       name: 'tarefas_casa',
-      description: 'Resumo geral da casa: tarefas pendentes hoje de cada morador e quem está designado para as tarefas automáticas da semana.',
+      description: 'Resumo geral da casa: tarefas pendentes hoje de cada morador e quem está designado para as tarefas automáticas de hoje e da escala fixa dos próximos dias.',
       parameters: noArgs,
     },
     run: (ctx) => {
@@ -115,7 +121,7 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
 
 export const functionDeclarations = Object.values(registry).map((r) => r.declaration);
 
-export function runTool(name: string, ctx: LlmContext, args: Record<string, unknown>): object {
+export function runTool(name: string, ctx: LlmContext, args: Record<string, unknown>): object | Promise<object> {
   const tool = registry[name];
   if (!tool) return { erro: `Ferramenta "${name}" não existe.` };
   return tool.run(ctx, args);

@@ -1,6 +1,7 @@
 import type { GenericTask, Task, AutoTask, Designated, Intent, ResolveResult } from "./types";
 import { normalizeText } from "./parser";
 import { addDays } from "./time";
+import type { ForecastEntry } from "./forecast";
 
 export function sortGenericTask(
     tasks: GenericTask[],
@@ -132,24 +133,32 @@ export function findTaskByDescription(
   return { ambiguous: top };
 }
 
+export interface CalendarItem {
+  descricao: string;
+  prob?: number;
+}
+
 export function buildWeekCalendar(
   tasks: Task[],
   designated: Designated[],
   autoTasks: AutoTask[],
+  forecast: ForecastEntry[] | null,
   person_id: string,
   today: string,
   logicalToday: string,
-): { data: string; descricoes: string[] }[] {
+): { data: string; itens: CalendarItem[] }[] {
   const personTasks = tasks.filter(
     (t) => t.person_id === person_id && t.status !== 'cancelled',
   );
-  const personAutos = designated.filter(
-    (d) => d.person_id === person_id && d.status === 'pending' && d.data >= logicalToday,
-  );
+  const personAutos: { data: string; task_id: string; prob?: number }[] = forecast
+    ? forecast.filter((f) => f.person_id === person_id && f.data >= logicalToday)
+    : designated.filter(
+        (d) => d.person_id === person_id && d.status === 'pending' && d.data >= logicalToday,
+      );
   const descOf = (task_id: string) =>
     autoTasks.find((a) => a.task_id === task_id)?.descricao || task_id;
 
-  const days: { data: string; descricoes: string[] }[] = [];
+  const days: { data: string; itens: CalendarItem[] }[] = [];
 
   for (let offset = 0; offset <= 6; offset++) {
     const date = addDays(today, offset);
@@ -171,11 +180,11 @@ export function buildWeekCalendar(
       .filter((d) => d.data === date)
       .sort((a, b) => a.task_id.localeCompare(b.task_id));
 
-    const descricoes = [
-      ...normais.map((t) => t.descricao),
-      ...autos.map((d) => descOf(d.task_id)),
+    const itens: CalendarItem[] = [
+      ...normais.map((t) => ({ descricao: t.descricao })),
+      ...autos.map((d) => ({ descricao: descOf(d.task_id), prob: d.prob })),
     ];
-    if (descricoes.length > 0) days.push({ data: date, descricoes });
+    if (itens.length > 0) days.push({ data: date, itens });
   }
 
   return days;
