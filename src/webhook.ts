@@ -28,13 +28,14 @@ import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboun
  } from './messaging';
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
-import { runWeekGeneration } from './scheduler';
+import { runDayGeneration } from './scheduler';
 import { getPendingAutoForToday, missedInWindow, lateInWindow, statusAfterDone, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, AdminScore, AdminAnalytics, LlmContext, Swap } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
 import { computeScores, DEFAULT_SCORE_PARAMS } from './score';
 import { computeAnalytics } from './analytics';
 import { fitModel, predictProbs } from './model';
+import { computeWeekForecast } from './weekforecast';
 import { computeWeekly } from './weekly';
 import { askLlm } from './llm';
 import { loadXs, appendXs, saveXs } from './sheets';
@@ -364,7 +365,11 @@ async function handleOneMessage(
     }
 
     case 'calendar': {
-      reply = formatWeekText(person.nome, combined, buildWeekCalendar(tasks, designated, autoTask, person.person_id, today, logicalToday));
+      const forecast = await computeWeekForecast(designated, people, autoTask, logicalToday).catch((err) => {
+        logger.error('Falha ao prever a semana.', { error: (err as Error).message });
+        return null;
+      });
+      reply = formatWeekText(person.nome, combined, buildWeekCalendar(tasks, designated, autoTask, forecast, person.person_id, today, logicalToday));
       break;
     }
 
@@ -1217,7 +1222,7 @@ async function handleFeriasOnConfirm(
       person.ferias = true;
       await savePerson(person);
       await deleteRows(TAB.designado, rowsToDelete);
-      await runWeekGeneration();
+      await runDayGeneration();
     } catch (err) {
       logger.error(`Ocorreu um erro ao ${person.person_id} tentar entrar de férias.`, {error : (err as Error).message});
       return 'Ocorreu um erro ao tentar entrar de férias. Digite "confirmar ferias" novamente. Caso um erro ocorra novamente, fale com o Pituxo para ajuda.';

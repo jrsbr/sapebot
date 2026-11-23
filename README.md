@@ -76,7 +76,7 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 
 **Modo férias.** A pessoa pode se declarar de férias e parar de receber as tarefas da casa enquanto estiver fora, voltando ao rodízio quando retornar. As tarefas pessoais continuam.
 
-**Calendário da semana.** A pessoa pode consultar, a qualquer momento, suas tarefas dos próximos sete dias.
+**Calendário da semana.** A pessoa pode consultar, a qualquer momento, suas tarefas dos próximos sete dias. As tarefas automáticas da casa são sorteadas só na virada do dia (3h), então os dias futuros são uma previsão: simulação Monte Carlo que sorteia quem faz ou não cada tarefa (pela chance estimada de cada pessoa) e reaplica a regra de atribuição dia a dia. Cada tarefa mostra a chance de ser dela; quanto mais distante o dia, menor a certeza. A escala fixa (cachorro) continua gerada com antecedência e aparece com 100%.
 
 **Cartas entre moradores.** Um morador deixa uma carta para outro (`carta <nome> <mensagem>`); ela fica guardada na aba `Cartas` e entra no aviso do lembrete da manhã seguinte (`* Você tem mensagens não lidas`), em ciclo de 9h a 9h. O destinatário lê com `cartas`. Cartas lidas são apagadas após 7 dias e as nunca lidas após 30. Quem não tem tarefa, mas tem carta, recebe o bom dia com o aviso.
 
@@ -115,7 +115,7 @@ As abas principais da planilha, com nomes exatos: `Pessoas`, `Tarefas`, `Mensage
 | `feito lavar louça` | Encontra a tarefa por descrição (avisa se houver ambiguidade). |
 | `pular 1` | Pula a tarefa 1 só por hoje (não vale para tarefas da casa). |
 | `status` | Lista o que ainda falta hoje. |
-| `semana` | Mostra o calendário de tarefas dos próximos sete dias. |
+| `semana` | Mostra o calendário de tarefas dos próximos sete dias, com a chance de cada tarefa automática. |
 | `ferias` / `voltar ferias` | Entra ou sai do modo férias (com confirmação). |
 | `trocar <tarefa> [dia] <nome>` | Pede a outro morador para assumir uma tarefa automática sua (ex.: `trocar tirar lixo quarta Joao`). O pedido vale 1 hora e só sai se a pessoa falou com o bot nas últimas 24h. |
 | `sim` / `não` / `aceitar N` / `recusar N` | Responde a um pedido de troca recebido (N escolhe o pedido quando há vários). |

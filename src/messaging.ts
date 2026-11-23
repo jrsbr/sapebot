@@ -5,6 +5,7 @@ import type { PersonScore } from './score';
 import type { HouseAnalytics, PersonAnalytics } from './analytics';
 import type { ModelFit, PersonProb } from './model';
 import type { WeeklyBoard, WeeklyRow } from './weekly';
+import type { CalendarItem } from './generictask';
 
 // ===== Formatação de mensagens =====
 
@@ -195,7 +196,7 @@ export function formatHelpText(): string {
     '- "pular 1" → pula a tarefa 1 só por hoje',
     '- "pular lavar louça" → pula pela descrição',
     '- "status" → mostra o que ainda falta hoje',
-    '- "semana" → gera um calendário das tarefas da sua semana',
+    '- "semana" → gera um calendário das tarefas da sua semana, com a chance de cada tarefa automática',
     '- "ferias" → entra de férias',
     '- "voltar ferias" → volta de férias',
     '- "carta <nome> <mensagem>" → deixa uma carta para um morador (ele recebe o aviso no lembrete da manhã seguinte)',
@@ -657,10 +658,19 @@ export function formatAdminReport(
   ].join('\n');
 }
 
+export function formatChance(prob: number): string {
+  if (prob >= 1) return '100%';
+  return `${Math.max(1, Math.min(99, Math.round(prob * 100)))}%`;
+}
+
+export function formatCalendarItem(item: CalendarItem): string {
+  return item.prob === undefined ? item.descricao : `${item.descricao} (${formatChance(item.prob)})`;
+}
+
 export function formatWeekText(
   name: string, 
   combined: GenericTask[], 
-  calendar: { data: string; descricoes: string[] }[]
+  calendar: { data: string; itens: CalendarItem[] }[]
 ): string {
   let reply: string = `Olá, ${name}. Você não tem tarefas pendentes para hoje!\n`;
   if (combined.length > 0) reply = [
@@ -674,8 +684,8 @@ export function formatWeekText(
   ]. join('\n');
   return [
     reply,
-    `Calendário da Semana:`,
-    calendar.map((d) => `- *${weekdayName(d.data)}*: ${d.descricoes.join(', ')}`).join('\n')
+    `Calendário da Semana (as tarefas automáticas de dias futuros são previsões, com a chance de cada uma):`,
+    calendar.map((d) => `- *${weekdayName(d.data)}*: ${d.itens.map(formatCalendarItem).join(', ')}`).join('\n')
   ].join('\n');
 }
 

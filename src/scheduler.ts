@@ -18,19 +18,13 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, buildTaskListParam, formatLettersOnlyMorningText, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
 import type { Person, Task, MessageRow, SendResult, AutoTask, Designated, Letter } from './types'
-import { expiredPendingDesignated, fullWeekAssignments, fixedWalkAssignments, getPendingAutoForToday, selectDayAssignments } from './autotask';
-import { selectDayAssignmentsV2 } from './assign';
+import { expiredPendingDesignated, dayAssignments, fixedWalkAssignments, getPendingAutoForToday } from './autotask';
+import { LOAD_WINDOW_DAYS } from './assign';
+import { getAssignmentSelector, configFlag } from './weekforecast';
 import { buildCombinedList, genericTaskKey } from './generictask';
 import { loadRoutes, updateBestPrice, appendPriceLog } from './flightsheets';
 import { searchFlightPrice } from './serpapi';
 import { decideAlert, buildRouteLine, pickDateForToday } from './flighttracker';
-
-function configFlag(cfg: Record<string, string>, key: string, def: boolean): boolean {
-  const v = cfg[key];
-  if (v == null) return def;
-  const s = v.trim().toUpperCase();
-  return s === 'TRUE' || s === '1' || s === 'SIM';
-}
 
 export async function pruneOldMessages(hours = 48): Promise<number> {
   const matrix = await dumpTab(TAB.mensagens);
@@ -289,7 +283,7 @@ export async function runMissedDesignated(): Promise<{ succ: number, fail: numbe
   return { succ, fail, lastError };
 }
 
-export async function runWeekGeneration(): Promise<{ generated: number, partial: string[] }> {
+export async function runDayGeneration(): Promise<{ generated: number, partial: boolean }> {
   const [ designated, people, autoTask ] = await Promise.all([
     loadDesignated(),
     loadPeople(),
@@ -298,17 +292,11 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
   const pool = people.filter((p) => p.ativo === true && p.opt_in === true && p.ferias === false);
   const poolTasks = autoTask.filter((a) => a.tipo !== 'fixo');
   const today = logicalDate(env.DEFAULT_TIMEZONE);
-  const cut = addDays(today, -60);
-  let useV2 = false;
-  try {
-    useV2 = configFlag(await loadConfig(), 'assignment_v2_enabled', false);
-  } catch (err) {
-    logger.error('Falha ao ler Config; usando a regra antiga de atribuição.', { error: (err as Error).message });
-  }
-  const selector = useV2 ? selectDayAssignmentsV2 : selectDayAssignments;
-  const { newDesignated, partialDays } = fullWeekAssignments(pool, poolTasks, designated, today, cut, selector);
+  const cut = addDays(today, -LOAD_WINDOW_DAYS);
+  const selector = await getAssignmentSelector();
+  const { newDesignated, partial } = dayAssignments(pool, poolTasks, designated, today, cut, selector);
   let appendWork = false;
-  
+
   if (newDesignated.length > 0) {
     try {
       await appendDesignateds(newDesignated);
@@ -320,11 +308,11 @@ export async function runWeekGeneration(): Promise<{ generated: number, partial:
     }
   }
 
-  if (partialDays.length > 0) {
-    logger.warn(`Dias parcialmente preenchidos (pulados): ${partialDays.join(', ')}. Preencher manualmente.`);
+  if (partial) {
+    logger.warn(`Dia ${today} parcialmente preenchido (pulado). Preencher manualmente.`);
   }
 
-  return { generated: appendWork ? newDesignated.length : 0, partial: partialDays };
+  return { generated: appendWork ? newDesignated.length : 0, partial };
 }
 
 export async function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; task_id: string; motivo: string }[] }> {
@@ -498,7 +486,7 @@ export function startScheduler(): void {
         logger.error(`Ocorreu um erro ao carregar os designados: ${ (err as Error).message }`)
       }
       try {
-        const { generated } = await runWeekGeneration();
+        const { generated } = await runDayGeneration();
         logger.info(`Geração de tarefas automáticas: ${generated} criadas.`);
       }
       catch (err) {
