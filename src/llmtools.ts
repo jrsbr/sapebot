@@ -37,7 +37,7 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
   minha_semana: {
     declaration: {
       name: 'minha_semana',
-      description: 'Mostra o calendário das tarefas da própria pessoa para os próximos 7 dias. As tarefas automáticas de dias futuros são previsões probabilísticas: cada uma traz chance_percent.',
+      description: 'Mostra o calendário das tarefas da própria pessoa para os próximos 7 dias. As tarefas automáticas de dias futuros são previsões probabilísticas: as certas vêm com certa=true e as demais com chance_percent.',
       parameters: noArgs,
     },
     run: async (ctx) => {
@@ -53,7 +53,7 @@ const registry: Record<string, { declaration: FunctionDeclaration; run: Executor
         semana: calendar.map((d) => ({
           dia: weekdayName(d.data),
           data: d.data,
-          tarefas: d.itens.map((i) => ({ descricao: i.descricao, chance_percent: i.prob === undefined ? undefined : Math.round(i.prob * 100) })),
+          tarefas: d.itens.map((i) => ({ descricao: i.descricao, chance_percent: i.prob === undefined || i.prob >= 1 ? undefined : Math.max(1, Math.min(99, Math.round(i.prob * 100))), certa: i.prob === undefined || i.prob >= 1 ? true : undefined })),
         })),
       };
     },

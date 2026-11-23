@@ -177,18 +177,37 @@ export function fixedWalkAssignments(
   return { newDesignated, skipped };
 }
 
+export function dropExistingSlots(
+    rows: Designated[],
+    existing: Designated[],
+): Designated[] {
+    const taken = new Set(existing.map((d) => `${d.data}|${d.task_id}`));
+    return rows.filter((d) => {
+        const key = `${d.data}|${d.task_id}`;
+        if (taken.has(key)) return false;
+        taken.add(key);
+        return true;
+    });
+}
+
 export function getPendingAutoForToday(
     designated: Designated[],
     person_id: string,
     logicalToday: string,
 ): Designated[] {
     const lateCut = addDays(logicalToday, -1);
-    return designated.filter((d) =>
-        person_id === d.person_id && (
+    const seen = new Set<string>();
+    return designated.filter((d) => {
+        const wanted = person_id === d.person_id && (
             (logicalToday === d.data && d.status === 'pending') ||
             (lateCut === d.data && d.status === 'missed')
-        )
-    );
+        );
+        if (!wanted) return false;
+        const key = `${d.data}|${d.task_id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 }
 
 export function statusAfterDone(d: Designated): 'done' | 'late' {

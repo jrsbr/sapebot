@@ -29,6 +29,7 @@ import { formatStatusText, formatHelpText, formatTaskListMultiline, buildOutboun
 import { sendText, sendTemplate } from './whatsapp';
 import { buildCombinedList, buildWeekCalendar, findTaskByDescription, resolveTargets, taskToGeneric } from './generictask';
 import { runDayGeneration } from './scheduler';
+import { isSuperAdmin, superMarkSummary } from './superadmin';
 import { getPendingAutoForToday, missedInWindow, lateInWindow, statusAfterDone, vacationPendingToDelete } from './autotask';
 import type { Person, Task, MessageRow, IncomingMessage, ResolveResult, Intent, AutoTask, Designated, GenericTask, Letter, AdminAdd, AdminRemove, AdminList, AdminReport, AdminScore, AdminAnalytics, LlmContext, Swap } from './types'
 import { parseAdminCommand, tokenizeAdmin } from './adminparser';
@@ -241,6 +242,7 @@ async function handleOneMessage(
     person: person,      
     today: today,
     logicalToday: logicalToday,
+    superAdmin: isSuperAdmin(person.whatsapp_e164),
   };
 
   if (intent.type !== 'confirm' && intent.type !== 'cancel') clearPending(person.whatsapp_e164);
@@ -330,6 +332,30 @@ async function handleOneMessage(
         clearPending(person.whatsapp_e164);
         const dest = people.find((x) => x.person_id === p.para_person_id);
         reply = dest ? await deliverLetter(person, dest, p.texto) : formatLetterNotFound();
+        break;
+      }
+      if (p.kind === 'super_mark') {
+        if (!ctx.superAdmin) {
+          clearPending(person.whatsapp_e164);
+          reply = 'Não entendi. Envie "ajuda" para ver os comandos disponíveis.';
+          break;
+        }
+        const summary = superMarkSummary(p, people, autoTask);
+        if (p.stage === 1) {
+          setPending(person.whatsapp_e164, { ...p, stage: 2 });
+          reply = `*Confirmação final (2/2)*\n${summary}\n\nResponda "sim" de novo para aplicar ou "cancelar". Expira em 60s.`;
+          break;
+        }
+        clearPending(person.whatsapp_e164);
+        const row = designated.find((d) => d.data === p.data && d.task_id === p.task_id && d.person_id === p.person_id);
+        if (!row || row.status !== p.from) {
+          reply = 'A tarefa mudou desde o pedido (ou sumiu). Nada foi alterado; peça de novo.';
+          break;
+        }
+        row.status = p.to;
+        autoChanged.push(row);
+        logger.info('AUDITORIA super admin: tarefa marcada.', { por: person.person_id, data: p.data, task_id: p.task_id, person_id: p.person_id, de: p.from, para: p.to });
+        reply = `Feito: ${summary}.`;
         break;
       }
       if (p.kind === 'command') {

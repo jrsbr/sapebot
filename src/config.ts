@@ -41,10 +41,12 @@ const schema = z.object({
 
     // ===== Admin via WhatsApp =====
   ADMIN_PHONES: z.string().default(''), // E.164 separados por vírgula
+  SUPER_ADMIN_PHONES: z.string().default(''), // E.164 separados por vírgula
 
   // ===== Chamada do Gemini ====
   GEMINI_API_KEY: z.string().default(''),
-  GEMINI_MODEL: z.string().default('gemini-2.5-flash-lite'),
+  GEMINI_MODEL: z.string().default('gemini-3.5-flash-lite'),
+  GEMINI_MODEL_SUPERADMIN: z.string().default('gemini-3.8-flash'),
 
   // ===== Flight tracker (uso pessoal, temporário) =====
   FLIGHT_TRACKER_ENABLED: z.coerce.boolean().default(true),
