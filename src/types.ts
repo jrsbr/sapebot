@@ -233,6 +233,7 @@ export interface LlmContext {
   person: Person;
   today: string;
   logicalToday: string;
+  superAdmin?: boolean;
 }
 
 // ===== Flight tracker (uso pessoal, temporário) =====

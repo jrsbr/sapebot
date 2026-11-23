@@ -6,8 +6,12 @@ import { LlmContext, MessageRow } from "./types";
 import { brPhoneKey } from "./tasks";
 import { weekdayName } from "./time";
 import { functionDeclarations, runTool } from "./llmtools";
+import { superFunctionDeclarations, runSuperTool, buildSuperPrompt } from "./superadmin";
 
 const MAX_LLM_ITER = 5;
+const SUPER_MAX_ITER = 10;
+const SUPER_HISTORY_LIMIT = 200;
+const SUPER_REPLY_LIMIT = 3900;
 
 const SYSTEM_PROMPT = `Você é o Sapebot, um bot de WhatsApp que organiza as tarefas domésticas de uma república. Você está conversando direto com um morador: ele mandou uma mensagem que você não reconheceu como comando, então responda de forma breve e simpática, na primeira pessoa, como o próprio Sapebot (ex.: "Oi, eu sou o Sapebot, tudo certo?").
 
@@ -65,17 +69,24 @@ export async function askLlm(
 ): Promise<string | null> {
     if (env.GEMINI_API_KEY === '') return null;
 
-    const sysPrompt = { parts: [{ text: `${SYSTEM_PROMPT}\n\nData de hoje: ${ctx.today} (${weekdayName(ctx.today)}).` }] };
-    const userContent: any[] = [...buildHistory(ctx.messages, ctx.person.whatsapp_e164), { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
-    const config = { maxOutputTokens: 800, temperature: 0.6, thinkingConfig: { thinkingBudget: 512 } };
-    
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${env.GEMINI_MODEL}:generateContent`;
-    const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: 20000 };
+    const sup = ctx.superAdmin === true;
+    const maxIter = sup ? SUPER_MAX_ITER : MAX_LLM_ITER;
+    const declarations = sup ? superFunctionDeclarations : functionDeclarations;
+    const sysPrompt = { parts: [{ text: sup ? buildSuperPrompt(ctx) : `${SYSTEM_PROMPT}\n\nData de hoje: ${ctx.today} (${weekdayName(ctx.today)}).` }] };
+    const history = buildHistory(ctx.messages, ctx.person.whatsapp_e164, sup ? SUPER_HISTORY_LIMIT : 6, sup);
+    const userContent: any[] = [...history, { role:'user', parts:[{ text: sanitizeForGemini(lastUserText)}] }];
+    const config = sup
+      ? { maxOutputTokens: 6144, temperature: 0.7, thinkingConfig: { thinkingBudget: 2048 } }
+      : { maxOutputTokens: 800, temperature: 0.6, thinkingConfig: { thinkingBudget: 512 } };
 
-    for (let i = 0 ; i < MAX_LLM_ITER ; i ++) {
+    let model = sup ? env.GEMINI_MODEL_SUPERADMIN : env.GEMINI_MODEL;
+    const opts = { headers: { 'x-goog-api-key': env.GEMINI_API_KEY, 'content-type': 'application/json' }, timeout: sup ? 90000 : 20000 };
+
+    for (let i = 0 ; i < maxIter ; i ++) {
         try {
-            const body: any = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations }] };
-            if (i > 0) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+            const body: any = { systemInstruction: sysPrompt, contents: userContent, generationConfig: config, tools: [{ functionDeclarations: declarations }] };
+            if (sup ? i === maxIter - 1 : i > 0) body.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
             const resp = await postWithRetry(url, body, opts);
             const cand = resp.data.candidates?.[0];
             const parsedContent = cand?.content;
@@ -91,22 +102,28 @@ export async function askLlm(
                     logger.warn('Gemini sem texto na resposta final.', { iter: i, finishReason: cand?.finishReason });
                     return null;
                 }
-                return text;
+                return sup && text.length > SUPER_REPLY_LIMIT ? `${text.slice(0, SUPER_REPLY_LIMIT - 60)}\n…(resposta cortada; peça para continuar)` : text;
             }
             userContent.push(parsedContent);
-            const result = await runTool(fnCall.name, ctx, fnCall.args ?? {});
-            logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name, result: JSON.stringify(result) });
+            const result = sup
+              ? await runSuperTool(fnCall.name, ctx, fnCall.args ?? {})
+              : await runTool(fnCall.name, ctx, fnCall.args ?? {});
+            logger.info('Gemini chamou tool.', { iter: i, tool: fnCall.name, result: sup ? `${JSON.stringify(result).length} chars` : JSON.stringify(result) });
             const cleanResult = JSON.parse(sanitizeForGemini(JSON.stringify(result)));
             userContent.push({ role: 'user', parts: [{ functionResponse: { name: fnCall.name, response: cleanResult } }] });
 
         } catch (err) {
             const e = err as any;
-            logger.error('Falha na requisição ao Gemini.', { error: e?.message, status: e?.response?.status, data: e?.response?.data });
+            logger.error('Falha na requisição ao Gemini.', { model, error: e?.message, status: e?.response?.status, data: e?.response?.data });
+            if (sup && model !== env.GEMINI_MODEL) {
+                model = env.GEMINI_MODEL;
+                continue;
+            }
             return null;
         }
     }
 
-    logger.warn('Loop LLM esgotou MAX_LLM_ITER sem resposta final.', { max: MAX_LLM_ITER });
+    logger.warn('Loop LLM esgotou o limite de iterações sem resposta final.', { max: maxIter });
     return null;
 }
 
@@ -138,12 +155,12 @@ function buildHistory (
     messages: MessageRow[],
     phone: string,
     historyLimit: number = 6,
+    includeLetters: boolean = false,
 ): { role: 'user' | 'model', parts: { text: string }[] }[] {
     const history = messages.filter((m) =>
         brPhoneKey(m.whatsapp_e164) === brPhoneKey(phone) &&
         m.body !== '' &&
-        m.parsed_intent !== 'letter' &&
-        m.parsed_intent !== 'letters'
+        (includeLetters || (m.parsed_intent !== 'letter' && m.parsed_intent !== 'letters'))
     )
     .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
     .slice(-historyLimit)

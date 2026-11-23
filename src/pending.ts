@@ -1,11 +1,12 @@
 import { brPhoneKey } from './tasks';
-import type { Intent } from './types';
+import type { Intent, Designated } from './types';
 
 export type PendingAction =
   | { kind: 'ferias_on' }
   | { kind: 'ferias_off' }
   | { kind: 'letter'; para_person_id: string; texto: string }
-  | { kind: 'command'; intent: Intent };
+  | { kind: 'command'; intent: Intent }
+  | { kind: 'super_mark'; stage: 1 | 2; data: string; task_id: string; person_id: string; from: Designated['status']; to: 'done' | 'late' | 'missed' };
 
 const TTL_MS = 60_000;
 const store = new Map<string, { action: PendingAction; expiresAt: number }>();
