@@ -18,7 +18,7 @@ import {
 import { sendText, sendTemplate } from './whatsapp';
 import { formatReminderText, formatNoTasksText, buildTaskListParam, formatLettersOnlyMorningText, buildOutboundRow, within24h, alreadyRemindedToday, } from './messaging';
 import type { Person, Task, MessageRow, SendResult, AutoTask, Designated, Letter } from './types'
-import { expiredPendingDesignated, dayAssignments, fixedWalkAssignments, getPendingAutoForToday } from './autotask';
+import { expiredPendingDesignated, dayAssignments, fixedWalkAssignments, getPendingAutoForToday, dropExistingSlots } from './autotask';
 import { LOAD_WINDOW_DAYS } from './assign';
 import { getAssignmentSelector, configFlag } from './weekforecast';
 import { buildCombinedList, genericTaskKey } from './generictask';
@@ -283,7 +283,29 @@ export async function runMissedDesignated(): Promise<{ succ: number, fail: numbe
   return { succ, fail, lastError };
 }
 
-export async function runDayGeneration(): Promise<{ generated: number, partial: boolean }> {
+let generationChain: Promise<unknown> = Promise.resolve();
+
+function withGenerationLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = generationChain.then(fn, fn);
+  generationChain = run.catch(() => undefined);
+  return run;
+}
+
+async function appendNewSlots(rows: Designated[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const fresh = dropExistingSlots(rows, await loadDesignated());
+  if (fresh.length < rows.length) {
+    logger.warn(`Geração ignorou ${rows.length - fresh.length} linha(s) já existentes em Designado (data, task_id).`);
+  }
+  await appendDesignateds(fresh);
+  return fresh.length;
+}
+
+export function runDayGeneration(): Promise<{ generated: number, partial: boolean }> {
+  return withGenerationLock(generateDay);
+}
+
+async function generateDay(): Promise<{ generated: number, partial: boolean }> {
   const [ designated, people, autoTask ] = await Promise.all([
     loadDesignated(),
     loadPeople(),
@@ -295,16 +317,14 @@ export async function runDayGeneration(): Promise<{ generated: number, partial: 
   const cut = addDays(today, -LOAD_WINDOW_DAYS);
   const selector = await getAssignmentSelector();
   const { newDesignated, partial } = dayAssignments(pool, poolTasks, designated, today, cut, selector);
-  let appendWork = false;
+  let generated = 0;
 
   if (newDesignated.length > 0) {
     try {
-      await appendDesignateds(newDesignated);
-      appendWork = true;
+      generated = await appendNewSlots(newDesignated);
     }
     catch (err) {
       logger.error('Ocorreu um erro ao adicionar as novas tarefas automática.', { error: (err as Error).message});
-      appendWork = false;
     }
   }
 
@@ -312,10 +332,14 @@ export async function runDayGeneration(): Promise<{ generated: number, partial: 
     logger.warn(`Dia ${today} parcialmente preenchido (pulado). Preencher manualmente.`);
   }
 
-  return { generated: appendWork ? newDesignated.length : 0, partial };
+  return { generated, partial };
 }
 
-export async function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; task_id: string; motivo: string }[] }> {
+export function runWalkGeneration(): Promise<{ generated: number; skipped: { data: string; task_id: string; motivo: string }[] }> {
+  return withGenerationLock(generateWalk);
+}
+
+async function generateWalk(): Promise<{ generated: number; skipped: { data: string; task_id: string; motivo: string }[] }> {
   const autoTask = await loadAutoTasks();
   const walkTasks = autoTask.filter((a) => a.tipo === 'fixo').sort((a, b) => a.task_id.localeCompare(b.task_id));
   if (walkTasks.length === 0) {
@@ -331,9 +355,10 @@ export async function runWalkGeneration(): Promise<{ generated: number; skipped:
   const taskIds = walkTasks.map((w) => w.task_id);
   const { newDesignated, skipped } = fixedWalkAssignments(slots, people, designated, taskIds, today);
 
+  let generated = 0;
   if (newDesignated.length > 0) {
     try {
-      await appendDesignateds(newDesignated);
+      generated = await appendNewSlots(newDesignated);
     } catch (err) {
       logger.error('Ocorreu um erro ao adicionar as designações de escala fixa.', { error: (err as Error).message });
       return { generated: 0, skipped };
@@ -344,7 +369,7 @@ export async function runWalkGeneration(): Promise<{ generated: number; skipped:
     logger.warn(`Designações de escala fixa não geradas: ${skipped.map((s) => `${s.data} [${s.task_id}] (${s.motivo})`).join(', ')}.`);
   }
 
-  return { generated: newDesignated.length, skipped };
+  return { generated, skipped };
 }
 
 // ===== Flight tracker (uso pessoal, temporário) =====
