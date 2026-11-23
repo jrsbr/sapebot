@@ -14,13 +14,13 @@ export interface ScoreParams {
 }
 
 export const DEFAULT_SCORE_PARAMS: ScoreParams = {
-  halfLifeDays: 90,
+  halfLifeDays: 14,
   missWeight: 2,
   lateWeight: 0.5,
   priorStrength: 5,
   defaultMean: 0.8,
-  gamma: 40,
-  maxWeight: 15,
+  gamma: 20,
+  maxWeight: 5,
   windowDays: 90,
   lowerBoundZ: 0.84,
 };
